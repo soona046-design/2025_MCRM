@@ -1,0 +1,297 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Response;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use App\Models\Lead;
+use App\Models\Appointment;
+use App\Models\CostImport;
+use App\Models\Visit;
+use App\Models\AdMetric;
+use App\Services\Ads\NaverAdsApiService;
+
+class ChannelPivotController extends Controller
+{
+    protected $naverAdsApiService;
+
+    public function __construct(NaverAdsApiService $naverAdsApiService)
+    {
+        $this->naverAdsApiService = $naverAdsApiService;
+    }
+
+    public function index(Request $request)
+    {
+        Log::info('ChannelPivotController@index started.');
+        Log::info('All request parameters', $request->all());
+        $startDate = $request->input('startDate');
+        $endDate = $request->input('endDate');
+        $clinicId = $request->input('clinicId');
+
+        Log::info('Request parameters', ['startDate' => $startDate, 'endDate' => $endDate, 'clinicId' => $clinicId]);
+
+        // Fetch Naver Ads data and store/update in CostImport
+        if ($startDate && $endDate) {
+            Log::info('Attempting to fetch Naver Ads data.', ['startDate' => $startDate, 'endDate' => $endDate]);
+            try {
+                $naverCosts = $this->naverAdsApiService->getAdCosts($startDate, $endDate);
+                Log::info('Naver Ads API costs fetched', ['count' => count($naverCosts)]);
+
+                // 기존 데이터 삭제 (Naver)
+                CostImport::where('platform', '네이버')->whereBetween('date', [$startDate, $endDate])->delete();
+
+                // 기존 데이터 삭제 (Facebook)
+                CostImport::where('platform', 'Facebook')->whereBetween('date', [$startDate, $endDate])->delete();
+
+                foreach ($naverCosts as $costData) {
+                    CostImport::create($costData);
+                }
+                Log::info('Naver Ads costs stored/updated in CostImport.', ['naverCosts' => $naverCosts]);
+
+            } catch (\Exception $e) {
+                Log::error('Error fetching/storing Naver Ads costs: ' . $e->getMessage(), ['exception' => $e]);
+                // 예외 발생 시 빈 배열로 처리하거나, 에러를 프론트엔드로 전달하는 방식 선택
+                // 현재는 오류를 로그로 남기고 계속 진행 (데이터는 없을 수 있음)
+            }
+        }
+
+        // Prepare base query for leads with visit information
+        $leadsQuery = Lead::query()
+            ->join('visits', 'leads.source_visit_id', '=', 'visits.visit_id')
+            ->select('leads.lead_id', 'leads.status', 'visits.utm_source', 'visits.utm_campaign'); // clinic_id 제거
+
+        if ($clinicId) {
+            // $leadsQuery->where('leads.clinic_id', $clinicId); // Leads 모델에 clinic_id가 없으므로 제거
+        }
+
+        // Apply date filters to leads
+        if ($startDate) {
+            $leadsQuery->whereDate('leads.created_at', '>=', $startDate);
+        }
+        if ($endDate) {
+            $leadsQuery->whereDate('leads.created_at', '<=', $endDate);
+        }
+        
+        $leads = $leadsQuery->get();
+        Log::info('Leads fetched', ['count' => $leads->count(), 'first_lead' => $leads->first()]);
+
+        // 약속 데이터
+        $appointments = Appointment::select(
+            'appointments.*',
+            'visits.utm_source',
+            'visits.utm_campaign'
+        )
+            ->join('leads', 'appointments.lead_id', '=', 'leads.lead_id')
+            ->join('visits', 'leads.source_visit_id', '=', 'visits.visit_id')
+            ->whereDate('appointments.slot_at', '>=', $startDate)
+            ->whereDate('appointments.slot_at', '<=', $endDate)
+            ->get();
+        Log::info('Appointments fetched', ['count' => $appointments->count(), 'first_appointment' => $appointments->first()]);
+
+        // Prepare base query for cost imports
+        $costImportsQuery = CostImport::query();
+
+        // Apply date filters to cost imports
+        if ($startDate) {
+            $costImportsQuery->whereDate('cost_imports.date', '>=', $startDate);
+        }
+        if ($endDate) {
+            $costImportsQuery->whereDate('cost_imports.date', '<=', $endDate);
+        }
+        // Apply clinic_id filter to cost imports if it's relevant (e.g., if CostImport has clinic_id)
+        // Currently, assuming CostImport does not directly have clinic_id, but it can be inferred via channel/campaign.
+        // If CostImport model has a direct clinic_id, uncomment and use below:
+        // if ($clinicId) {
+        //     $costImportsQuery->where('clinic_id', $clinicId);
+        // }
+
+        $costImports = $costImportsQuery->get();
+        Log::info('CostImports fetched', ['count' => $costImports->count(), 'first_cost_import' => $costImports->first()]);
+
+        // Fetch AdMetric data (광고 성과 지표)
+        $adMetricsQuery = AdMetric::query();
+        if ($startDate) {
+            $adMetricsQuery->whereDate('date_start', '>=', $startDate);
+        }
+        if ($endDate) {
+            $adMetricsQuery->whereDate('date_end', '<=', $endDate);
+        }
+        $adMetrics = $adMetricsQuery->get();
+        Log::info('AdMetrics fetched', ['count' => $adMetrics->count(), 'first_ad_metric' => $adMetrics->first()]);
+
+        Log::info('Leads utm_sources before grouping', $leads->pluck('utm_source')->toArray());
+
+        // Aggregate channel performance data (채널별 집계)
+        $channelPerformanceData = $leads->groupBy('utm_source')->map(function ($leadsByChannel, $channel) use ($appointments, $costImports, $adMetrics, $leads) {
+            $totalLeads = $leadsByChannel->count();
+
+            // 누적 상태 기반 카운팅
+            // 문의중: leads (전환수) - 모든 리드가 문의중 이상
+            // 상담완료 이상: tickets_count (상담수)
+            $totalTickets = $leadsByChannel->filter(function($lead) {
+                return in_array($lead->status, ['상담완료', 'contacted', '미팅완료', '예약완료', 'converted', '계약완료', 'closed']);
+            })->count();
+
+            // 미팅완료 이상: appointments_count (예약수)
+            $totalAppointments = $leadsByChannel->filter(function($lead) {
+                return in_array($lead->status, ['미팅완료', '예약완료', 'converted', '계약완료', 'closed']);
+            })->count();
+
+            // 계약완료: revenue 집계
+            $totalRevenue = 0;
+            $leadIds = $leadsByChannel->pluck('lead_id')->toArray();
+            $completedLeads = $leadsByChannel->filter(function($lead) {
+                return in_array($lead->status, ['계약완료', 'closed']);
+            });
+            foreach ($completedLeads as $lead) {
+                $appointment = \App\Models\Appointment::where('lead_id', $lead->lead_id)->first();
+                if ($appointment) {
+                    $totalRevenue += $appointment->total_revenue ?? 0;
+                }
+            }
+
+            $totalCost = $costImports->where('platform', $channel)->sum('cost');
+
+            // AdMetric 데이터 집계 (플랫폼 매핑)
+            $platformMapping = [
+                '네이버' => 'naver',
+                'Google Ads' => 'google',
+                'Facebook Ads' => 'meta',
+            ];
+            $adPlatform = $platformMapping[$channel] ?? null;
+            $totalImpressions = 0;
+            $totalClicks = 0;
+
+            if ($adPlatform) {
+                $channelAdMetrics = $adMetrics->where('platform', $adPlatform);
+                $totalImpressions = $channelAdMetrics->sum('impressions');
+                $totalClicks = $channelAdMetrics->sum('clicks');
+            }
+
+            $cpa = $totalLeads > 0 ? $totalCost / $totalLeads : 0;
+            $roi = $totalCost > 0 ? (($totalRevenue - $totalCost) / $totalCost) * 100 : 0;
+            $cpc = $totalClicks > 0 ? $totalCost / $totalClicks : 0;
+
+            // CTR (클릭률) = 클릭 / 노출 × 100
+            $ctr = $totalImpressions > 0 ? ($totalClicks / $totalImpressions) * 100 : 0;
+
+            // CVR (전환율) = 전환 / 클릭 × 100
+            $cvr = $totalClicks > 0 ? ($totalLeads / $totalClicks) * 100 : 0;
+
+            // 전환율 (리드 → 예약)
+            $conversionRate = $totalLeads > 0 ? ($totalAppointments / $totalLeads) * 100 : 0;
+
+            return [
+                'channel' => $channel,
+                'impressions' => $totalImpressions,
+                'clicks' => $totalClicks,
+                'ctr' => round($ctr, 2),
+                'leads' => $totalLeads,
+                'cvr' => round($cvr, 2),
+                'tickets' => $totalTickets,
+                'appointments' => $totalAppointments,
+                'conversionRate' => round($conversionRate, 2),
+                'cost' => round($totalCost),
+                'revenue' => round($totalRevenue),
+                'cpc' => round($cpc),
+                'cpa' => round($cpa),
+                'roi' => round($roi),
+            ];
+        })->values()->toArray();
+        Log::info('ChannelPerformanceData aggregated', ['data' => $channelPerformanceData]);
+
+        // Aggregate pivot table data (캠페인별 세부 데이터)
+        $pivotTableData = $leads->groupBy(['utm_source', 'utm_campaign'])->map(function ($leadsByChannelCampaign, $keys) use ($appointments, $costImports, $adMetrics) {
+            list($channel, $campaign) = $keys; // 이전 코드로 되돌리고, null 처리 로직 추가
+
+            $channel = $channel ?? '알 수 없음'; // utm_source가 없으면 '알 수 없음'으로 기본값 설정
+            $campaign = $campaign ?? '알 수 없음'; // utm_campaign이 없으면 '알 수 없음'으로 기본값 설정
+
+            $totalLeads = $leadsByChannelCampaign->count();
+
+            // 상태 기반 카운팅
+            // 상담완료 이상: tickets_count
+            $totalTickets = $leadsByChannelCampaign->filter(function($lead) {
+                return in_array($lead->status, ['상담완료', 'contacted', '미팅완료', '예약완료', 'converted', '계약완료', 'closed']);
+            })->count();
+
+            // 미팅완료 이상: appointments_count
+            $totalAppointments = $leadsByChannelCampaign->filter(function($lead) {
+                return in_array($lead->status, ['미팅완료', '예약완료', 'converted', '계약완료', 'closed']);
+            })->count();
+
+            // 계약완료: revenue 집계
+            $totalRevenue = 0;
+            $completedLeads = $leadsByChannelCampaign->filter(function($lead) {
+                return in_array($lead->status, ['계약완료', 'closed']);
+            });
+            foreach ($completedLeads as $lead) {
+                $appointment = \App\Models\Appointment::where('lead_id', $lead->lead_id)->first();
+                if ($appointment) {
+                    $totalRevenue += $appointment->total_revenue ?? 0;
+                }
+            }
+
+            $totalCost = $costImports->where('platform', $channel)->where('campaign', $campaign)->sum('cost');
+
+            // AdMetric 데이터 집계 (플랫폼 매핑)
+            $platformMapping = [
+                '네이버' => 'naver',
+                'Google Ads' => 'google',
+                'Facebook Ads' => 'meta',
+            ];
+            $adPlatform = $platformMapping[$channel] ?? null;
+            $totalImpressions = 0;
+            $totalClicks = 0;
+
+            if ($adPlatform) {
+                // 캠페인별로도 필터링 (meta_json에 campaign 정보가 있다면)
+                $campaignAdMetrics = $adMetrics->where('platform', $adPlatform);
+                $totalImpressions = $campaignAdMetrics->sum('impressions');
+                $totalClicks = $campaignAdMetrics->sum('clicks');
+            }
+
+            $cpa = $totalLeads > 0 ? $totalCost / $totalLeads : 0;
+            $roas = $totalCost > 0 ? ($totalRevenue / $totalCost) * 100 : 0;
+            $cpc = $totalClicks > 0 ? $totalCost / $totalClicks : 0;
+
+            // CTR (클릭률) = 클릭 / 노출 × 100
+            $ctr = $totalImpressions > 0 ? ($totalClicks / $totalImpressions) * 100 : 0;
+
+            // CVR (전환율) = 전환 / 클릭 × 100
+            $cvr = $totalClicks > 0 ? ($totalLeads / $totalClicks) * 100 : 0;
+
+            // 전환율 (리드 → 예약)
+            $conversionRate = $totalLeads > 0 ? ($totalAppointments / $totalLeads) * 100 : 0;
+
+            return [
+                'id' => uniqid(), // Temporary ID
+                'channel' => $channel,
+                'campaign' => $campaign,
+                'impressions' => $totalImpressions,
+                'clicks' => $totalClicks,
+                'ctr' => round($ctr, 2),
+                'leads' => $totalLeads,
+                'cvr' => round($cvr, 2),
+                'tickets' => $totalTickets,
+                'appointments' => $totalAppointments,
+                'conversionRate' => round($conversionRate, 2),
+                'cost' => round($totalCost),
+                'revenue' => round($totalRevenue),
+                'cpc' => round($cpc),
+                'cpa' => round($cpa),
+                'roas' => round($roas),
+            ];
+        })->values()->toArray();
+        Log::info('PivotTableData aggregated', ['data' => $pivotTableData]);
+
+
+        return Response::json([
+            'channelPerformance' => $channelPerformanceData,
+            'pivotTable' => $pivotTableData,
+        ]);
+    }
+}
