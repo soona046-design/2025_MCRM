@@ -478,6 +478,9 @@ class ChannelPivotController extends Controller
             // 전환율 (리드 → 예약)
             $conversionRate = $totalLeads > 0 ? ($totalAppointments / $totalLeads) * 100 : 0;
 
+            // 데이터 출처 판단: AdMetrics 데이터가 있으면 API, 없으면 수동 입력
+            $source = ($totalImpressions > 0 || $totalClicks > 0) ? 'api' : 'manual';
+
             $pivotTableData->push([
                 'id' => uniqid(), // Temporary ID
                 'channel' => $channel,
@@ -496,6 +499,7 @@ class ChannelPivotController extends Controller
                 'cpc' => round($cpc),
                 'cpa' => round($cpa),
                 'roas' => round($roas),
+                'source' => $source, // API 데이터 vs 수동 입력 데이터 구분
             ]);
             });
         });
