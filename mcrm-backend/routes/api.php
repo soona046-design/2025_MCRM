@@ -16,6 +16,8 @@ use App\Http\Controllers\Api\ChannelPivotController;
 use App\Http\Controllers\Api\ChannelManagementController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\MarketingStatsController;
+use App\Http\Controllers\Api\ChannelTreatmentMatrixController;
+use App\Http\Controllers\Api\MarketingInsightController;
 
 /*
 |--------------------------------------------------------------------------
@@ -38,6 +40,11 @@ Route::post('/collect/visit', [VisitController::class, 'store']);
 
 // 개발용 - 대시보드 임시 인증 제거
 Route::get('/dashboards/channel-pivot', [ChannelPivotController::class, 'index']);
+
+// 개발용 - 채널-진료 매트릭스 임시 인증 제거
+Route::get('/channel-treatment-matrix', [ChannelTreatmentMatrixController::class, 'index']);
+Route::get('/channel-treatment-matrix/treatment-types', [ChannelTreatmentMatrixController::class, 'getTreatmentTypes']);
+Route::get('/channel-treatment-matrix/channel-categories', [ChannelTreatmentMatrixController::class, 'getChannelCategories']);
 
 // 인증이 필요한 라우트들
 Route::middleware('auth:sanctum')->group(function () {
@@ -91,5 +98,21 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/mappings/{id}', [ChannelManagementController::class, 'updateMapping']);
         Route::delete('/mappings/{id}', [ChannelManagementController::class, 'deleteMapping']);
         Route::patch('/mappings/{id}/toggle', [ChannelManagementController::class, 'toggleMapping']);
+    });
+
+    // 채널-진료 매트릭스 관리 (인증 필요한 기능만)
+    Route::prefix('channel-treatment-matrix')->group(function () {
+        Route::post('/', [ChannelTreatmentMatrixController::class, 'store']); // 수동 입력
+        Route::delete('/{id}', [ChannelTreatmentMatrixController::class, 'destroy']); // 삭제
+        Route::post('/auto-collect', [ChannelTreatmentMatrixController::class, 'autoCollect']); // 자동 집계
+    });
+
+    // 마케팅 인사이트 (AI 분석)
+    Route::prefix('marketing-insights')->group(function () {
+        Route::get('/', [MarketingInsightController::class, 'index']); // 인사이트 목록
+        Route::get('/{id}', [MarketingInsightController::class, 'show']); // 특정 인사이트 조회
+        Route::post('/generate', [MarketingInsightController::class, 'generate']); // AI 분석 실행
+        Route::patch('/{id}/publish', [MarketingInsightController::class, 'togglePublish']); // 공개/비공개 전환
+        Route::delete('/{id}', [MarketingInsightController::class, 'destroy']); // 삭제
     });
 });

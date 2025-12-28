@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
         // 기본 시더 실행
         $this->call([
             UserSeeder::class,
+            TreatmentTypeSeeder::class, // 진료 유형 기본 데이터
         ]);
 
         $this->call([ // 새로운 시더들을 호출하도록 추가

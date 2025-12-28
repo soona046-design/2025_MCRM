@@ -276,15 +276,193 @@ const data = ChannelPerformanceSchema.parse(response.data);
 
 ---
 
+## 2025년 12월 15일 - 채널-진료 매트릭스 페이지 구현
+
+### 발견된 버그 및 해결 내역
+
+---
+
+#### Bug #6: date-fns 패키지 호환성 문제
+**발생 일시**: 2025-12-15 10:57
+**심각도**: Critical
+**상태**: ✅ 해결됨
+
+**문제 설명**:
+채널-진료 매트릭스 페이지에서 `@mui/x-date-pickers`의 `AdapterDateFns`를 사용할 때 Next.js 빌드 오류 발생.
+
+**에러 메시지**:
+```
+Failed to compile
+Module not found: Package path ./_lib/format/longFormatters is not exported from package
+/Users/soona/Documents/인사이트/2025_MCRM/m-crm-project/node_modules/date-fns
+(see exports field in /Users/soona/Documents/인사이트/2025_MCRM/m-crm-project/node_modules/date-fns/package.json)
+
+Import trace for requested module:
+./node_modules/@mui/x-date-pickers/AdapterDateFns/index.js
+./src/app/dashboards/channel-treatment-matrix/page.tsx
+```
+
+**원인**:
+- `date-fns` 패키지의 버전과 `@mui/x-date-pickers`의 `AdapterDateFns` 간 호환성 문제
+- `date-fns` 내부 모듈 경로 `_lib/format/longFormatters`가 exports에 포함되지 않음
+- Next.js 14.2.33과 최신 date-fns 버전 간 충돌
+
+**해결 방법**:
+```tsx
+// 문제 코드 - DatePicker 사용
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { ko } from 'date-fns/locale';
+import { format, subDays } from 'date-fns';
+
+<LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={ko}>
+  <DatePicker
+    label="시작일"
+    value={startDate}
+    onChange={(date) => date && setStartDate(date)}
+    format="yyyy-MM-dd"
+  />
+</LocalizationProvider>
+
+// 수정된 코드 - 일반 TextField 사용
+// 날짜 유틸리티 함수 직접 구현
+const formatDate = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const subDays = (date: Date, days: number): Date => {
+  const result = new Date(date);
+  result.setDate(result.getDate() - days);
+  return result;
+};
+
+// TextField로 교체
+<TextField
+  label="시작일"
+  type="date"
+  value={startDate}  // string 타입
+  onChange={(e) => setStartDate(e.target.value)}
+  size="small"
+  InputLabelProps={{ shrink: true }}
+/>
+```
+
+**변경 사항**:
+1. `@mui/x-date-pickers` 관련 import 모두 제거
+2. `date-fns` import 제거
+3. `Date` 타입을 `string` 타입으로 변경
+4. 날짜 유틸리티 함수 직접 구현
+5. `LocalizationProvider` wrapper 제거
+6. 모든 `format()` 함수 호출을 직접 구현한 `formatDate()` 또는 문자열 그대로 사용으로 변경
+
+**교훈**:
+1. **패키지 의존성 주의**: 서드파티 라이브러리 간 호환성 문제는 빌드 타임에만 발견될 수 있음
+2. **간단한 기능은 직접 구현**: 날짜 포맷팅 같은 간단한 기능은 외부 라이브러리 없이 구현 가능
+3. **HTML5 기본 기능 활용**: `<input type="date">`는 브라우저 네이티브 DatePicker 제공
+4. **번들 사이즈 감소**: 불필요한 패키지 제거로 번들 크기 축소 효과
+
+**대안 고려사항**:
+- `date-fns` 버전 다운그레이드 (v2.x)
+- `dayjs`로 교체 (더 가벼운 대안)
+- `Luxon` 사용
+- 또는 현재처럼 네이티브 date input 사용
+
+---
+
+## 2025년 12월 20일 - 채널 피벗 페이지 버전 불일치 문제
+
+### 발견된 버그 및 해결 내역
+
+---
+
+#### Bug #7: 로컬 채널 피벗 페이지가 이전 버전으로 되돌아감
+**발생 일시**: 2025-12-20 23:48
+**심각도**: High
+**상태**: ✅ 해결됨
+
+**문제 설명**:
+로컬 개발 환경의 채널 피벗 페이지(`src/app/dashboards/channel-pivot/page.tsx`)가 Vercel 프로덕션 배포 버전보다 구버전으로 돌아가 있었음.
+
+**증상**:
+- Vercel 배포 버전: `AdapterDateFns` 사용 (main 브랜치, 1807 lines)
+- 로컬 버전: `AdapterDayjs` 사용 (feature/date-range-filtering 브랜치, 2011 lines)
+- 엑셀 업로드 기능 추가 후 파일이 수정되었으나, UI/UX가 이전 버전으로 보임
+
+**원인**:
+1. 작업 브랜치(`feature/date-range-filtering`)와 배포 브랜치(`main`)가 분리되어 있음
+2. main 브랜치에는 최신 UI/UX 개선사항이 반영되어 Vercel에 배포됨
+3. 로컬에서는 feature 브랜치에서 작업하면서 main의 최신 변경사항을 가져오지 않음
+4. 엑셀 업로드 기능을 feature 브랜치에만 추가하여 main 브랜치 기준으로는 구버전이 됨
+
+**해결 방법**:
+```bash
+# 1. 현재 작업 백업
+cp src/app/dashboards/channel-pivot/page.tsx src/app/dashboards/channel-pivot/page.tsx.backup_before_main_restore
+
+# 2. main 브랜치의 최신 버전으로 복구
+git show main:src/app/dashboards/channel-pivot/page.tsx > src/app/dashboards/channel-pivot/page.tsx
+
+# 3. 엑셀 업로드 기능 추가
+# - imports에 xlsx, UploadFileIcon, DownloadIcon 추가
+# - handleDownloadTemplate 함수 구현
+# - handleExcelUpload 함수 구현
+# - UI에 "템플릿 다운로드", "엑셀 업로드" 버튼 추가
+```
+
+**변경 사항**:
+1. **기본 버전**: main 브랜치의 최신 코드 (AdapterDateFns, Date 타입 사용)
+2. **추가 기능**:
+   - `import * as XLSX from 'xlsx'` 추가
+   - `UploadFileIcon`, `DownloadIcon` 아이콘 import
+   - 엑셀 템플릿 다운로드 핸들러 (Blob 방식)
+   - 엑셀 업로드 핸들러 (파일 검증, 날짜 변환, 데이터 파싱)
+   - UI에 3개 버튼 배치: "템플릿 다운로드", "엑셀 업로드", "캠페인 추가"
+
+**엑셀 업로드 기능 사양**:
+- **템플릿 형식**: channel, campaign, startDate, endDate, leads, appointments, cost, revenue
+- **자동 계산**: CPL, CPA, 전환율, ROI, ROAS
+- **날짜 처리**: 엑셀 시리얼 날짜 자동 변환 (`XLSX.SSF.parse_date_code`)
+- **검증**: 필수 필드 체크, 오류 행 상세 리포트
+- **저장**: localStorage에 manual 캠페인 자동 저장
+
+**교훈**:
+1. **브랜치 전략 명확화**: main 브랜치는 프로덕션 배포용, feature 브랜치는 개발용으로 명확히 구분
+2. **정기적인 main 병합**: feature 브랜치에서 작업 시 주기적으로 main의 변경사항 pull/merge
+3. **버전 확인**: 로컬과 배포 환경의 코드 버전이 일치하는지 주기적으로 확인
+4. **백업 습관**: 파일 복구 전 반드시 백업 생성
+5. **git show 활용**: 특정 브랜치의 파일 버전을 확인/복구할 때 유용
+
+**예방책**:
+```bash
+# feature 브랜치 작업 시 main 최신 변경사항 가져오기
+git checkout feature/date-range-filtering
+git fetch origin
+git merge origin/main
+
+# 또는 rebase
+git rebase origin/main
+```
+
+---
+
 ## 통계
 
-**총 버그 수**: 5개
-**해결된 버그**: 5개 (100%)
-**평균 해결 시간**: ~30분
-**주요 원인**: 데이터 구조 불일치 (60%), 문서 부족 (40%)
+**총 버그 수**: 7개
+**해결된 버그**: 7개 (100%)
+**평균 해결 시간**: ~25분
+**주요 원인**:
+- 데이터 구조 불일치 (43%)
+- 패키지 호환성 문제 (14%)
+- 브랜치 관리 문제 (14%)
+- 문서 부족 (29%)
 
 **교훈**:
 1. 데이터베이스 스키마 먼저 확인
 2. API 계약(Contract) 명확히 정의
 3. 자동화된 테스트 작성
 4. 서버 재시작으로 캐시 문제 해결
+5. 브랜치 전략 명확화 및 정기적인 main 동기화

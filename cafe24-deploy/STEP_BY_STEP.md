@@ -17,11 +17,11 @@ Cafe24 관리자 페이지 (https://www.cafe24.com) 로그인 후:
 3. 다음 정보를 확인하고 메모:
 
 ```
-도메인: yourdomain.cafe24.com
-FTP 주소: yourdomain.cafe24.com (또는 ftp.cafe24.com)
+도메인: insightmcrm.mycafe24.com
+FTP 주소: insightmcrm.mycafe24.com(또는 ftp.cafe24.com)
 FTP 포트: 21
-FTP 아이디: your_ftp_id
-FTP 비밀번호: your_ftp_password
+FTP 아이디: insightmcrm
+FTP 비밀번호: dlstkdlxm79!
 ```
 
 ---
