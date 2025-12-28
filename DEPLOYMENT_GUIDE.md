@@ -340,6 +340,71 @@ cat LeadController.php | head -20  # 내용 확인
 
 ---
 
+### 데이터베이스 마이그레이션 실패 (SSH 불가 시)
+
+**증상:** SSH 접속 불가로 `php artisan migrate` 실행 불가
+
+**상황:**
+- Cafe24 일부 요금제에서 SSH 접속 미지원
+- 새로운 마이그레이션 파일을 서버에 적용해야 함
+- 외래 키 중복 오류 (errno: 121) 발생 가능
+
+**해결: 웹 기반 마이그레이션 스크립트**
+
+1. **스크립트 작성** (로컬에서 생성)
+```php
+<?php
+// create-tables.php
+echo "<pre>";
+try {
+    chdir("/insightmcrm/laravel");
+    require_once "/insightmcrm/laravel/vendor/autoload.php";
+    $app = require_once "/insightmcrm/laravel/bootstrap/app.php";
+    $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+
+    // 신규 테이블만 생성 (기존 테이블 건드리지 않음)
+    $exists = \Illuminate\Support\Facades\DB::select("SHOW TABLES LIKE 'new_table'");
+    if (empty($exists)) {
+        \Illuminate\Support\Facades\DB::statement("
+            CREATE TABLE `new_table` (
+                -- 테이블 정의
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+        echo "✅ new_table created\n";
+    }
+
+    // migrations 테이블에 기록
+    \Illuminate\Support\Facades\DB::table('migrations')->insert([
+        'migration' => '2025_xx_xx_create_new_table',
+        'batch' => \Illuminate\Support\Facades\DB::table('migrations')->max('batch') + 1
+    ]);
+} catch (Exception $e) {
+    echo "❌ Error: " . $e->getMessage();
+}
+echo "</pre>";
+```
+
+2. **FTP 업로드**
+   - 파일: `create-tables.php`
+   - 위치: `/insightmcrm/www/`
+
+3. **브라우저 실행**
+   ```
+   http://insightmcrm.mycafe24.com/create-tables.php
+   ```
+
+4. **보안: 즉시 삭제**
+   - 실행 완료 후 FTP로 파일 삭제 필수!
+
+**주의사항:**
+- 전체 마이그레이션 실행 시 외래 키 중복 오류 발생 가능
+- **신규 테이블만 직접 생성**하는 방식 권장
+- 테이블 존재 여부 먼저 확인 (`SHOW TABLES LIKE`)
+
+**참고:** buglog.md - Bug #8 참조 (2025-12-28)
+
+---
+
 ### API CORS 에러
 
 **증상:** 프론트엔드에서 API 호출 시 CORS 에러

@@ -449,16 +449,119 @@ git rebase origin/main
 
 ---
 
+## 2025년 12월 28일 - Cafe24 서버 마이그레이션 배포 문제
+
+### 발견된 버그 및 해결 내역
+
+---
+
+#### Bug #8: Cafe24 서버 마이그레이션 외래 키 중복 오류
+**발생 일시**: 2025-12-28 22:50
+**심각도**: Critical
+**상태**: ✅ 해결됨
+
+**문제 설명**:
+채널-진료 매트릭스 시스템의 3개 마이그레이션 파일을 Cafe24 서버에 배포하기 위해 웹 기반 마이그레이션 스크립트(`run-migration.php`)를 실행했을 때 외래 키 중복 오류 발생.
+
+**에러 메시지**:
+```
+SQLSTATE[HY000]: General error: 1005 Can't create table `insightmcrm`.`leads` (errno: 121 "Duplicate key on write or update")
+(Connection: mysql, SQL: alter table `leads` add constraint `leads_source_visit_id_foreign` foreign key (`source_visit_id`) references `visits` (`visit_id`) on delete set null)
+```
+
+**원인**:
+1. 기존 데이터베이스에 이미 외래 키 제약 조건이 존재함
+2. `php artisan migrate` 실행 시 모든 마이그레이션을 순차 실행하려다가 이미 적용된 외래 키를 재생성하려고 시도
+3. 특히 `2025_09_25_000000_add_foreign_keys_to_leads_table.php` 마이그레이션이 이미 실행되어 있음
+
+**시도한 해결 방법들**:
+1. ❌ **SSH 접속 시도**: `ssh insightmcrm@insightmcrm.mycafe24.com` - Permission denied
+2. ❌ **웹 기반 전체 마이그레이션**: `run-migration.php` - errno: 121 오류
+
+**최종 해결 방법**:
+```php
+// create-new-tables.php - 신규 테이블만 직접 생성
+
+// 1. treatment_types 테이블 생성
+CREATE TABLE `treatment_types` (
+    `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+    `code` varchar(50) NOT NULL COMMENT '진료 유형 코드',
+    `name` varchar(100) NOT NULL COMMENT '진료 유형 이름',
+    `category` varchar(50) DEFAULT NULL,
+    `color` varchar(7) DEFAULT '#3b82f6',
+    `sort_order` int DEFAULT 0,
+    `active` tinyint(1) DEFAULT 1,
+    `description` text,
+    `created_at` timestamp NULL DEFAULT NULL,
+    `updated_at` timestamp NULL DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `treatment_types_code_unique` (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+// 2. channel_treatment_records 테이블 생성
+// 3. marketing_insights 테이블 생성
+// 4. migrations 테이블에 기록 추가
+```
+
+**실행 방법**:
+1. FTP로 `create-new-tables.php` 업로드 → `/insightmcrm/www/`
+2. 브라우저 접속: `http://insightmcrm.mycafe24.com/create-new-tables.php`
+3. 결과 확인: 23개 → 26개 테이블 증가
+4. 보안을 위해 스크립트 파일 삭제
+
+**변경 사항**:
+- ✅ `treatment_types` 테이블 생성
+- ✅ `channel_treatment_records` 테이블 생성 (외래 키: channel_categories, treatment_types, users)
+- ✅ `marketing_insights` 테이블 생성 (외래 키: users)
+- ✅ `migrations` 테이블에 3개 레코드 추가
+
+**교훈**:
+1. **점진적 마이그레이션**: 전체 마이그레이션 실행 대신 신규 테이블만 생성하는 것이 안전
+2. **웹 기반 스크립트**: SSH 접속 불가 시 Laravel bootstrap을 활용한 웹 스크립트로 대체 가능
+3. **테이블 존재 여부 확인**: `SHOW TABLES LIKE 'table_name'` 으로 중복 생성 방지
+4. **외래 키 중복 체크**: `information_schema.KEY_COLUMN_USAGE` 조회로 기존 제약 조건 확인
+5. **보안 주의**: 웹 기반 DB 관리 스크립트는 실행 후 즉시 삭제 필수
+
+**예방책**:
+```php
+// 마이그레이션 파일에서 if not exists 패턴 활용
+if (!Schema::hasTable('treatment_types')) {
+    Schema::create('treatment_types', function (Blueprint $table) {
+        // ...
+    });
+}
+
+// 외래 키 추가 시 존재 여부 확인
+$sm = Schema::getConnection()->getDoctrineSchemaManager();
+$foreignKeys = $sm->listTableForeignKeys('leads');
+$exists = collect($foreignKeys)->contains(fn($fk) => $fk->getName() === 'leads_source_visit_id_foreign');
+
+if (!$exists) {
+    Schema::table('leads', function (Blueprint $table) {
+        $table->foreign('source_visit_id')->references('visit_id')->on('visits');
+    });
+}
+```
+
+**참고 스크립트**:
+- `check-db.php`: 데이터베이스 연결 및 테이블 목록 확인
+- `run-migration.php`: 전체 마이그레이션 실행 (외래 키 오류로 사용 중단)
+- `check-foreign-keys.php`: 외래 키 상태 확인
+- `create-new-tables.php`: 신규 테이블만 직접 생성 ✅ **채택된 방법**
+
+---
+
 ## 통계
 
-**총 버그 수**: 7개
-**해결된 버그**: 7개 (100%)
+**총 버그 수**: 8개
+**해결된 버그**: 8개 (100%)
 **평균 해결 시간**: ~25분
 **주요 원인**:
-- 데이터 구조 불일치 (43%)
-- 패키지 호환성 문제 (14%)
-- 브랜치 관리 문제 (14%)
-- 문서 부족 (29%)
+- 데이터 구조 불일치 (38%)
+- 패키지 호환성 문제 (12%)
+- 브랜치 관리 문제 (12%)
+- 배포 환경 제약 (13%)
+- 문서 부족 (25%)
 
 **교훈**:
 1. 데이터베이스 스키마 먼저 확인
@@ -466,3 +569,5 @@ git rebase origin/main
 3. 자동화된 테스트 작성
 4. 서버 재시작으로 캐시 문제 해결
 5. 브랜치 전략 명확화 및 정기적인 main 동기화
+6. 점진적 배포 전략 (신규 항목만 추가)
+7. 웹 기반 대체 솔루션 준비 (SSH 불가 환경 대비)
