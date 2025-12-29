@@ -551,17 +551,108 @@ if (!$exists) {
 
 ---
 
+## 2025년 12월 29일 - Leads API 연동 필드 불일치 문제
+
+### 발견된 버그 및 해결 내역
+
+---
+
+#### Bug #9: 프론트엔드-백엔드 Leads API 필드 매핑 불일치
+**발생 일시**: 2025-12-29
+**심각도**: High
+**상태**: ✅ 해결됨
+
+**문제 설명**:
+로컬 환경에서 새 문의 등록 시 "로컬 저장"이라고 표시되며 백엔드 API 호출이 실패함. 프론트엔드와 백엔드의 필드 매핑이 일치하지 않아 validation 오류 발생.
+
+**증상**:
+- 새 문의 등록 시 항상 localStorage fallback 사용
+- API 호출 실패로 인해 백엔드 DB에 데이터 저장 안 됨
+- 콘솔에 "API 호출 실패, localStorage fallback 사용" 메시지 출력
+
+**원인**:
+1. **상태 값 불일치**: 프론트엔드는 한글 상태('신규', '상담완료', '미팅완료', '계약완료', '보류', '거절')를 보내지만, 백엔드는 영문 enum('new', 'contacted', 'pending', 'converted', 'rejected')만 허용
+2. **담당자 필드 불일치**: 프론트엔드는 `assignee_name` (string) 보내지만, 백엔드는 `assigned_user_id` (uuid) 필요
+3. **추가 필드 누락**: `treatment`, `consultation_notes`, `inquiry_date` 등은 백엔드 스키마에 없음
+
+**백엔드 LeadController validation 규칙**:
+```php
+$validatedData = $request->validate([
+    'name' => 'required|string|max:255',
+    'primary_phone' => 'nullable|string|max:20',
+    'status' => ['required', Rule::in(['new', 'contacted', 'pending', 'converted', 'rejected'])],
+    'score' => 'nullable|integer|min:0|max:100',
+    'memo' => 'nullable|string',
+    'assigned_user_id' => 'nullable|uuid|exists:users,user_id',
+]);
+```
+
+**프론트엔드가 보내던 데이터**:
+```typescript
+{
+  name: newLead.name,
+  primary_phone: newLead.primary_phone,
+  status: '상담완료', // ❌ 한글 값
+  assignee_name: '김상담', // ❌ 잘못된 필드명
+  treatment: ['CI(간판)', '온라인마케팅'], // ❌ 백엔드에 없는 필드
+  consultation_notes: '상담 메모', // ❌ 백엔드는 'memo' 사용
+  inquiry_date: '2025-12-29', // ❌ 백엔드에 없는 필드
+}
+```
+
+**해결 방법**:
+```typescript
+// src/app/leads/page.tsx 수정
+const statusMap: { [key: string]: string } = {
+  '신규': 'new',
+  '상담완료': 'contacted',
+  '미팅완료': 'converted',
+  '계약완료': 'closed',
+  '보류': 'pending',
+  '거절': 'rejected',
+};
+
+const response = await api.post('/api/leads', {
+  name: newLead.name,
+  primary_phone: newLead.primary_phone,
+  status: statusMap[newLead.status] || 'new', // ✅ 영문 변환
+  score: newLead.score,
+  memo: [ // ✅ memo 필드에 모든 추가 정보 병합
+    newLead.consultation_notes,
+    newLead.treatment.length > 0 ? `문의서비스: ${newLead.treatment.join(', ')}` : '',
+    newLead.inquiry_date ? `문의날짜: ${newLead.inquiry_date}` : '',
+  ].filter(Boolean).join('\n'),
+  // assigned_user_id는 사용자 매핑 시스템 필요 (향후 개선)
+});
+```
+
+**추가 문제 - 인증 필요**:
+Leads API는 `auth:sanctum` 미들웨어로 보호되어 있어 유효한 인증 토큰 필요. 로컬 테스트 시 실제 백엔드 로그인 필요.
+
+**교훈**:
+1. **API 계약 문서화**: 프론트엔드-백엔드 필드 매핑을 명확히 문서화
+2. **공통 타입 정의**: TypeScript interface와 Laravel validation 규칙 동기화
+3. **개발 환경 인증**: 로컬 테스트 시 Mock 데이터와 실제 API 분리
+4. **Enum 값 통일**: 다국어 지원이 필요한 경우 백엔드에서 번역 처리
+
+**TODO**:
+1. [ ] 담당자(assignee) 매핑 시스템 구현 (name → user_id 변환)
+2. [ ] 진료 서비스(treatment) 테이블 추가 또는 memo에 포함
+3. [ ] 로컬 개발 환경 인증 간소화 (개발용 토큰 또는 Mock API)
+
+---
+
 ## 통계
 
-**총 버그 수**: 8개
-**해결된 버그**: 8개 (100%)
+**총 버그 수**: 9개
+**해결된 버그**: 9개 (100%)
 **평균 해결 시간**: ~25분
 **주요 원인**:
-- 데이터 구조 불일치 (38%)
-- 패키지 호환성 문제 (12%)
-- 브랜치 관리 문제 (12%)
-- 배포 환경 제약 (13%)
-- 문서 부족 (25%)
+- 데이터 구조 불일치 (44%)
+- 패키지 호환성 문제 (11%)
+- 브랜치 관리 문제 (11%)
+- 배포 환경 제약 (11%)
+- 문서 부족 (23%)
 
 **교훈**:
 1. 데이터베이스 스키마 먼저 확인
