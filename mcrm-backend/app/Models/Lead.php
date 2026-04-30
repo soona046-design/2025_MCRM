@@ -67,11 +67,15 @@ class Lead extends Model
     public function getStatusAttribute($value)
     {
         $statusMapping = [
-            '문의중' => '신규',
+            'new'      => '신규',
             'contacted' => '상담완료',
             'converted' => '미팅완료',
+            'pending'  => '보류',
+            'rejected' => '거절',
+            // 레거시 값
+            '문의중'   => '신규',
             '예약완료' => '미팅완료',
-            'closed' => '계약완료',
+            'closed'   => '계약완료',
         ];
 
         return $statusMapping[$value] ?? $value;

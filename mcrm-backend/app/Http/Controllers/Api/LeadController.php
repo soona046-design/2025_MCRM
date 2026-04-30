@@ -176,11 +176,11 @@ class LeadController extends Controller
 
         // 필요한 정보들을 리드 객체에 추가
         $leads->getCollection()->transform(function ($lead) {
-            $lead->utm_source = $lead->sourceVisit->utm_source ?? 'N/A';
-            $lead->utm_campaign = $lead->sourceVisit->utm_campaign ?? 'N/A';
+            $lead->utm_source = $lead->sourceVisit->utm_source ?? '';
+            $lead->utm_campaign = $lead->sourceVisit->utm_campaign ?? '';
             $lead->assignee_name = $lead->assignee->name ?? '미배정';
             // 가장 최근 티켓의 SLA 상태를 가져옴
-            $lead->sla_status = $lead->tickets->isNotEmpty() ? ($lead->tickets->first()->sla_status ?? 'N/A') : 'N/A';
+            $lead->sla_status = $lead->tickets->isNotEmpty() ? ($lead->tickets->first()->sla_status ?? '-') : '-';
 
             // 상태 기반 카운팅 시스템
             // 상담완료: ticket = 1
@@ -251,7 +251,7 @@ class LeadController extends Controller
         }
 
         $validatedData = $request->validate([
-            'name' => 'string|max:255',
+            'name' => 'sometimes|string|max:255',
             'primary_phone' => 'nullable|string|max:20',
             'secondary_phone' => 'nullable|string|max:20',
             'email' => 'nullable|email|max:255',
@@ -259,9 +259,10 @@ class LeadController extends Controller
             'gender' => ['nullable', Rule::in(['male', 'female', 'other'])],
             'address' => 'nullable|string|max:255',
             'city' => 'nullable|string|max:255',
-            'status' => ['required', Rule::in(['new', 'contacted', 'pending', 'converted', 'rejected'])],
+            'status' => ['sometimes', Rule::in(['new', 'contacted', 'pending', 'converted', 'rejected'])],
             'score' => 'nullable|integer|min:0|max:100',
             'memo' => 'nullable|string',
+            'utm_source' => 'nullable|string|max:255',
             'latest_visit_id' => 'nullable|uuid|exists:visits,visit_id',
             'latest_ticket_id' => 'nullable|uuid|exists:tickets,ticket_id',
             'latest_appointment_id' => 'nullable|uuid|exists:appointments,apt_id',
@@ -273,7 +274,26 @@ class LeadController extends Controller
             unset($validatedData['email']);
         }
 
+        // utm_source 변경 시 연결된 Visit 업데이트
+        if (array_key_exists('utm_source', $validatedData)) {
+            $utmSource = $validatedData['utm_source'];
+            unset($validatedData['utm_source']);
+
+            if ($lead->sourceVisit) {
+                $lead->sourceVisit->update(['utm_source' => $utmSource]);
+            } else {
+                // Visit 없으면 새로 생성 후 연결
+                $visit = \App\Models\Visit::create([
+                    'utm_source' => $utmSource,
+                    'first_seen_at' => now(),
+                ]);
+                $validatedData['source_visit_id'] = $visit->visit_id;
+            }
+        }
+
         $lead->update($validatedData);
+
+        $lead->utm_source = $lead->fresh()->sourceVisit->utm_source ?? '';
 
         return response()->json($lead, 200);
     }
