@@ -1,6 +1,53 @@
 # M-CRM TODO
 
-_최종 업데이트: 2026-04-30_
+_최종 업데이트: 2026-06-20_
+
+---
+
+## 🔥 긴급 — 퍼널/채널 데이터 정합성 버그 (2026-06-20 코드+실DB 확인)
+
+> 운영 DB 직접 조회로 확인: `visits` 10건 존재하지만 `leads`(2건) 전부 `source_visit_id NULL` → 채널피벗/퍼널 집계 결과 0건. 아래 1·2가 직접 원인.
+
+- [x] **[BE-CRITICAL] 새 리드 등록 시 utm_source가 검증 규칙에 없어서 저장 안 됨** — 2026-06-20 코드 수정 완료, **배포 전(로컬 커밋만)**
+  파일: `mcrm-backend/app/Http/Controllers/Api/LeadController.php` (`store()`, `update()`)
+  `store()` 검증 규칙에 `utm_source` 추가 + Visit 생성/연결 로직 추가(`update()`와 동일 패턴), `ChannelCategoryHelper`로 `channel_category` 자동 분류도 같이 적용. 새 리드 생성 시 `source_visit_id`가 한 번도 set 안 되던 버그(=latest_visit_id만 저장되고 실제 귀속 컬럼은 항상 NULL)도 같이 수정.
+  로컬에서 검증: 신규 리드(`utm_source: naver`) 등록 → `source_visit_id` 연결 + `channel_category: online` 자동 분류 + `/api/dashboards/channel-pivot` 집계에 정상 반영 확인.
+  **남은 작업**: Cafe24 FTP로 `LeadController.php` 배포 필요 (운영은 현재 이 파일 기준 더 오래된 버전 실행 중 — `status` 필드 required/sometimes 차이로 이미 한 번 확인됨)
+
+- [ ] **[BE-CRITICAL] ChannelPivotController가 INNER JOIN으로 Visit 없는 리드를 전부 누락**
+  파일: `mcrm-backend/app/Http/Controllers/Api/ChannelPivotController.php:63` (leads), `:96-97` (appointments)
+  `Lead::join('visits', 'leads.source_visit_id', '=', 'visits.visit_id')` — INNER JOIN이라 `source_visit_id NULL`인 리드/예약이 결과에서 완전히 제외됨 (실측: JOIN 결과 0건)
+  **해결 방향**: 1번 해결 전까지는 최소 `leftJoin`으로 바꿔서 미연결 리드도 "채널 미확인"으로 집계에 포함
+
+- [ ] **[FE] 퍼널 대시보드 "계약완료" 카운트 로직이 죽어있음**
+  파일: `m-crm-project/src/app/funnel/page.tsx:190-205`
+  `localStorage.getItem('mcrm_leads')`에서만 읽음(실 데이터는 API 소스라 항상 비어있음) + `lead.status === '계약완료' || lead.status === 'closed'` 비교(백엔드엔 두 값 다 존재하지 않음, 실제 enum은 new/contacted/pending/converted/rejected)
+  → 계약완료 수치가 항상 0 또는 무의미
+  **해결 방향**: 백엔드 API 응답(`leads` state)에서 `status === 'converted'` 기준으로 직접 카운트
+
+- [ ] **[BE+FE] 채널 카테고리(온라인/오프라인/DB) 분류 로직 이중 구현 + 키워드 불일치**
+  백엔드: `mcrm-backend/app/Helpers/ChannelCategoryHelper.php:41-93`
+  프론트: `m-crm-project/src/app/channel-pivot/page.tsx:185-207`
+  확인된 충돌 사례: "재방문"(백엔드 db / 프론트 offline), "지인추천"(백엔드 offline / 프론트 db), "이벤트"·"거리홍보"·"지나가다"(백엔드 offline / 프론트 online 기본값)
+  **해결 방향**: 분류 로직을 백엔드 단일 소스로 통합, 프론트는 API가 내려주는 `category_code`/`category_name`만 사용
+
+- [ ] **[DB] `channel_category_mappings`에 비활성(`active=0`) 매핑이 방치됨**
+  실측: `naver`, `facebook`, `instagram` 매핑이 `active=0` — 관리 화면에서 활성화해도 반영 안 되는 죽은 설정으로 보일 수 있음. 우연히 규칙기반 fallback과 결과가 같아서 지금은 안 드러남
+  **해결 방향**: 불필요하면 삭제, 필요하면 active=1로 정리
+
+- [ ] **[조사 필요] `visits.channel_category`에 'direct' → 'offline'로 저장된 건 4건**
+  `ChannelCategoryHelper`의 규칙대로면 'direct'는 매칭 키워드가 없어 기본값 'online'이어야 하는데 실제론 'offline'으로 저장돼 있음. Helper를 거치지 않고 다른 경로/과거 로직으로 들어간 데이터로 추정 — 원인 미확인
+  **해결 방향**: `VisitController`가 저장 시점에 실제로 Helper를 호출하는지 코드 추적 필요
+
+- [ ] **[참고] 상태값 의미 붕괴 — "미팅완료"·"계약완료"가 둘 다 'converted'로 매핑**
+  파일: `m-crm-project/src/app/leads/page.tsx` statusMap
+  저장 후 두 단계를 구분할 수 없음. 백엔드 enum에 별도 값 추가 검토 필요
+
+- [ ] **[조사 필요] `Lead.php` 모델에 status를 영문→한글로 되돌리는 accessor가 있는데 운영엔 미배포 상태로 보임**
+  파일: `mcrm-backend/app/Models/Lead.php:67-82` (`getStatusAttribute()`)
+  로컬에서 리드 생성 시 응답이 `"status":"신규"`로 옴(accessor 적용) vs 운영 API 직접 호출 시 `"status":"new"`로 옴(accessor 미적용) — 운영이 이 모델의 더 오래된 버전을 실행 중인 것으로 추정.
+  이게 `ChannelPivotController`에서 전에 발견한 "상위 집계는 영문 status, 세부 집계는 한글 status 체크" 불일치의 근본 원인일 가능성 높음(Eloquent 모델 경유 시엔 accessor가 적용돼 한글로 보이고, Query Builder/raw 비교 시엔 영문 그대로라 동시에 혼재).
+  **주의**: `Lead.php`를 그대로 운영에 FTP 배포하면 모든 리드 API 응답의 status가 갑자기 한글로 바뀌어 프론트엔드 표시/필터링이 깨질 수 있음 — 배포 전 영향 범위 확인 필요
 
 ---
 
@@ -10,11 +57,7 @@ _최종 업데이트: 2026-04-30_
   `LeadController.php` + `Lead.php` 수정 내용이 미커밋 상태  
   커밋 후 Cafe24 FTP 배포 필요
 
-- [ ] **[인프라] Cafe24 서버 memo 컬럼 추가**  
-  1. FTP로 `add-memo-column.php` 업로드 → `/insightmcrm/www/`  
-  2. 브라우저 실행: `http://insightmcrm.mycafe24.com/add-memo-column.php`  
-  3. 성공 확인 후 즉시 파일 삭제 (보안)  
-  4. `m-crm-project/src/app/leads/page.tsx` memo 필드 주석 해제 (line ~681)
+- [x] **[인프라] Cafe24 서버 memo 컬럼 추가** — 2026-06-20 완료, API로 정상 저장 확인
 
 - [ ] **[인프라] Cafe24 사용자 데이터 확인**  
   1. FTP로 `check-users.php` 업로드  

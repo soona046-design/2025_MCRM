@@ -10,6 +10,7 @@ use App\Models\User; // User 모델 사용 (담당자 조회 시 필요)
 use Illuminate\Validation\Rule; // 유효성 검사 룰 사용
 use Illuminate\Support\Facades\Hash; // 이메일 해싱에 필요
 use App\Models\Visit; // Visit 모델 사용
+use App\Helpers\ChannelCategoryHelper; // 채널 카테고리 자동 분류
 
 class LeadController extends Controller
 {
@@ -33,6 +34,7 @@ class LeadController extends Controller
             'status' => ['required', Rule::in(['new', 'contacted', 'pending', 'converted', 'rejected'])],
             'score' => 'nullable|integer|min:0|max:100',
             'memo' => 'nullable|string',
+            'utm_source' => 'nullable|string|max:100',
             'latest_visit_id' => 'nullable|uuid|exists:visits,visit_id',
             'latest_ticket_id' => 'nullable|uuid|exists:tickets,ticket_id',
             'latest_appointment_id' => 'nullable|uuid|exists:appointments,apt_id',
@@ -45,6 +47,17 @@ class LeadController extends Controller
             $validatedData['email_hash'] = $emailHash;
             unset($validatedData['email']); // email은 저장하지 않고 hash만 저장
         }
+
+        // utm_source만 있고 연결할 기존 Visit이 없으면 새 Visit을 생성해 채널 정보를 보존
+        if (isset($validatedData['utm_source']) && !isset($validatedData['latest_visit_id'])) {
+            $visit = Visit::create([
+                'utm_source' => $validatedData['utm_source'],
+                'channel_category' => ChannelCategoryHelper::getCategoryFromUtmSource($validatedData['utm_source']),
+                'first_seen_at' => now(),
+            ]);
+            $validatedData['latest_visit_id'] = $visit->visit_id;
+        }
+        unset($validatedData['utm_source']); // leads 테이블엔 해당 컬럼이 없음 (visits를 통해서만 보관)
 
         // 중복 리드 탐색
         $existingLead = Lead::where(function ($query) use ($validatedData, $emailHash) {
@@ -96,6 +109,7 @@ class LeadController extends Controller
         } else {
             // 새로운 리드 생성
             $validatedData['lead_id'] = (string) Str::uuid(); // UUID 수동 생성
+            $validatedData['source_visit_id'] = $validatedData['latest_visit_id'] ?? null; // 채널 귀속을 위해 반드시 설정
 
             if (isset($validatedData['assigned_user_id'])) {
                 $user = User::where('user_id', $validatedData['assigned_user_id'])->first();
@@ -280,11 +294,15 @@ class LeadController extends Controller
             unset($validatedData['utm_source']);
 
             if ($lead->sourceVisit) {
-                $lead->sourceVisit->update(['utm_source' => $utmSource]);
+                $lead->sourceVisit->update([
+                    'utm_source' => $utmSource,
+                    'channel_category' => ChannelCategoryHelper::getCategoryFromUtmSource($utmSource),
+                ]);
             } else {
                 // Visit 없으면 새로 생성 후 연결
                 $visit = \App\Models\Visit::create([
                     'utm_source' => $utmSource,
+                    'channel_category' => ChannelCategoryHelper::getCategoryFromUtmSource($utmSource),
                     'first_seen_at' => now(),
                 ]);
                 $validatedData['source_visit_id'] = $visit->visit_id;
