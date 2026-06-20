@@ -14,10 +14,12 @@ _최종 업데이트: 2026-06-20_
   로컬에서 검증: 신규 리드(`utm_source: naver`) 등록 → `source_visit_id` 연결 + `channel_category: online` 자동 분류 + `/api/dashboards/channel-pivot` 집계에 정상 반영 확인.
   **남은 작업**: Cafe24 FTP로 `LeadController.php` 배포 필요 (운영은 현재 이 파일 기준 더 오래된 버전 실행 중 — `status` 필드 required/sometimes 차이로 이미 한 번 확인됨)
 
-- [ ] **[BE-CRITICAL] ChannelPivotController가 INNER JOIN으로 Visit 없는 리드를 전부 누락**
-  파일: `mcrm-backend/app/Http/Controllers/Api/ChannelPivotController.php:63` (leads), `:96-97` (appointments)
-  `Lead::join('visits', 'leads.source_visit_id', '=', 'visits.visit_id')` — INNER JOIN이라 `source_visit_id NULL`인 리드/예약이 결과에서 완전히 제외됨 (실측: JOIN 결과 0건)
-  **해결 방향**: 1번 해결 전까지는 최소 `leftJoin`으로 바꿔서 미연결 리드도 "채널 미확인"으로 집계에 포함
+- [x] **[BE-CRITICAL] ChannelPivotController가 INNER JOIN으로 Visit 없는 리드를 전부 누락** — 2026-06-20 코드 수정 완료, **배포 전(로컬 커밋만)**
+  파일: `mcrm-backend/app/Http/Controllers/Api/ChannelPivotController.php` (leads/appointments 쿼리)
+  `leads`→`visits` join을 `leftJoin`으로 변경, `utm_source`를 `COALESCE(visits.utm_source, '채널 미확인')`으로 select해서 미연결 리드도 별도 채널로 집계됨. `appointments`→`visits` join도 동일하게 변경.
+  로컬에서 검증: `source_visit_id=NULL`인 리드 생성 → `/api/dashboards/channel-pivot` 응답에 `"채널 미확인"` 항목으로 정상 집계 확인 (수정 전엔 결과에서 완전히 사라졌음).
+  **추가로 발견(별개 이슈, 미수정)**: 이 컨트롤러 내에서 `channelPerformanceData`/`categoryPerformanceData`/`pivotTableData`는 영문 status(`'converted'` 등)로 필터링하는데, 바로 아래 `categoryPerformanceData`의 `channelDetails` 서브집계(317-333행)는 한글 status(`'계약완료'` 등)로 필터링함. 같은 `$leads` 컬렉션인데 `Lead.php`의 `getStatusAttribute` accessor 활성화 여부에 따라 한쪽은 항상 0이 됨 — 위 "Lead.php accessor" 항목과 같은 근본 원인. 별도로 처리 필요.
+  **남은 작업**: Cafe24 FTP로 `ChannelPivotController.php` 배포 필요
 
 - [ ] **[FE] 퍼널 대시보드 "계약완료" 카운트 로직이 죽어있음**
   파일: `m-crm-project/src/app/funnel/page.tsx:190-205`

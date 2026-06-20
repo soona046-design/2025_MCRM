@@ -59,13 +59,14 @@ class ChannelPivotController extends Controller
         }
 
         // Prepare base query for leads with visit information and category mapping
+        // leftJoin 사용: source_visit_id가 없는 리드(채널 미연결)도 "채널 미확인"으로 집계에 포함시킴
         $leadsQuery = Lead::query()
-            ->join('visits', 'leads.source_visit_id', '=', 'visits.visit_id')
+            ->leftJoin('visits', 'leads.source_visit_id', '=', 'visits.visit_id')
             ->leftJoin('channel_categories as cc', 'visits.channel_category', '=', 'cc.code')
             ->select(
                 'leads.lead_id',
                 'leads.status',
-                'visits.utm_source',
+                DB::raw("COALESCE(visits.utm_source, '채널 미확인') as utm_source"),
                 'visits.utm_campaign',
                 'visits.channel_category as category_code',
                 'cc.name as category_name',
@@ -87,14 +88,14 @@ class ChannelPivotController extends Controller
         $leads = $leadsQuery->get();
         Log::info('Leads fetched', ['count' => $leads->count(), 'first_lead' => $leads->first()]);
 
-        // 약속 데이터
+        // 약속 데이터 (leads->visits는 leftJoin: 채널 미연결 리드의 예약도 누락 없이 포함)
         $appointmentsQuery = Appointment::select(
             'appointments.*',
-            'visits.utm_source',
+            DB::raw("COALESCE(visits.utm_source, '채널 미확인') as utm_source"),
             'visits.utm_campaign'
         )
             ->join('leads', 'appointments.lead_id', '=', 'leads.lead_id')
-            ->join('visits', 'leads.source_visit_id', '=', 'visits.visit_id');
+            ->leftJoin('visits', 'leads.source_visit_id', '=', 'visits.visit_id');
 
         // Apply date filters to appointments
         if ($startDate) {
