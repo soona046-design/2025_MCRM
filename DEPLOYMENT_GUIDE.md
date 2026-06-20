@@ -2,7 +2,7 @@
 
 > **작성일**: 2025-11-25
 > **프로젝트**: Insight M-CRM
-> **프론트엔드**: Vercel (자동 배포)
+> **프론트엔드**: Vercel (GitHub 연동 자동배포 — `git push` 한 번으로 끝)
 > **백엔드**: Cafe24 (FTP 배포)
 
 ---
@@ -51,7 +51,11 @@
 
 ## 🌐 프론트엔드 배포 (Vercel)
 
-### ✅ 완전 자동 배포!
+### ✅ GitHub 연동 자동배포 (2026-06-21부터)
+
+`m-crm-project`는 이제 자체 GitHub 레포(`soona046-design/m-crm-project`, private)를 가지고 있고, 이 레포가 Vercel `insight-mcrm` 프로젝트에 **Git 연동**되어 있습니다. 더 이상 `vercel --prod`를 수동으로 실행할 필요 없이 **`main` 브랜치에 push만 하면 Vercel이 자동으로 빌드·배포**합니다.
+
+> ⚠️ **구조 변경 주의**: `m-crm-project`는 부모 레포(`2025_MCRM`)의 하위 폴더이면서 동시에 자기 자신의 독립된 GitHub 레포를 가진 이중 구조입니다(정식 git submodule은 아니고, 폴더 안에 별도 `.git`이 존재). 부모 레포에는 여전히 폴더 내용이 추적되지만(`m-crm-project` 변경 시 부모 레포에서도 "modified content" 로 보임), **배포 트리거는 오직 `m-crm-project` 자체 레포의 push**입니다. 부모 레포만 push해서는 Vercel이 배포되지 않습니다.
 
 ### 배포 명령어
 
@@ -68,23 +72,36 @@ Claude에게 요청:
 cd /Users/soona/Documents/인사이트/2025_MCRM/m-crm-project
 git add .
 git commit -m "사용자가 요청한 수정 내용"
-vercel --prod
+git push origin main
 ```
 
 ### 결과
 
-✅ **1-2분 후 자동으로 배포 완료!**
+✅ **push 직후 Vercel이 자동으로 빌드 시작, 1-2분 후 배포 완료!**
 
-**Production URL:**
+**Production URL (고정 별칭):**
 ```
-https://insight-mcrm-xto4fa1t6-soona046-gmailcoms-projects.vercel.app
+https://insight-mcrm.vercel.app
+```
+
+**Git 연동 전용 별칭** (이 브랜치 배포만 확인하고 싶을 때):
+```
+https://insight-mcrm-git-main-soona046-gmailcoms-projects.vercel.app
 ```
 
 ### 배포 확인
 
-- Vercel CLI가 배포 URL 표시
-- 브라우저에서 URL 접속하여 확인
+```bash
+vercel ls insight-mcrm        # 최근 배포 목록/상태 확인
+vercel inspect <배포 URL>      # 특정 배포 상세 확인
+```
+- 브라우저에서 Production URL 접속하여 확인
 - Console 창에서 에러 없는지 확인
+- (참고) `vercel inspect`의 status가 `UNKNOWN`으로 보여도 실제 사이트가 200으로 응답하면 정상 배포된 것 — CLI 표시상의 사소한 이슈일 뿐
+
+### (예전 방식, 더 이상 기본 사용 안 함)
+
+급할 때 로컬에서 강제로 한 번 더 배포하고 싶으면 `vercel --prod`도 여전히 동작하지만, 평소엔 git push만으로 충분합니다.
 
 ---
 
@@ -154,9 +171,9 @@ https://insightmcrm.mycafe24.com/api/엔드포인트
 
 Claude:
 ✅ Git 커밋 완료: "대시보드 UI 색상 변경"
-✅ Vercel 배포 시작...
+✅ m-crm-project 레포로 push 완료 → Vercel이 자동으로 빌드 시작
 ✅ 배포 완료!
-   https://insight-mcrm-xto4fa1t6-soona046-gmailcoms-projects.vercel.app
+   https://insight-mcrm.vercel.app
    1-2분 후 확인하세요!
 ```
 
@@ -425,11 +442,11 @@ echo "</pre>";
 
 | 항목 | 프론트엔드 (Vercel) | 백엔드 (Cafe24) |
 |------|-------------------|----------------|
-| **방식** | 완전 자동 | Git + FTP 하이브리드 |
+| **방식** | GitHub 연동 완전 자동 (`git push`만 하면 끝) | Git + FTP 하이브리드 |
 | **소요 시간** | 1-2분 | 3-5분 |
 | **사용자 작업** | ✅ 없음 | FTP 업로드 |
-| **Claude 작업** | Git + Vercel 배포 | Git 커밋 + 파일 목록 안내 |
-| **롤백** | `vercel rollback` | FTP로 이전 파일 재업로드 |
+| **Claude 작업** | Git 커밋 + push (`m-crm-project` 자체 레포로) | Git 커밋 + 파일 목록 안내 |
+| **롤백** | `vercel rollback` 또는 이전 커밋으로 git revert 후 push | FTP로 이전 파일 재업로드 |
 | **환경 변수** | Vercel 대시보드 | `.env` 파일 (FTP) |
 
 ---
@@ -451,16 +468,20 @@ Laravel 경로: /insightmcrm/laravel/
 
 ```
 프로젝트명: insight-mcrm
-Production URL: https://insight-mcrm-xto4fa1t6-soona046-gmailcoms-projects.vercel.app
+Production URL (고정 별칭): https://insight-mcrm.vercel.app
+Git 연동: soona046-design/m-crm-project (main 브랜치)
 대시보드: https://vercel.com/soona046-gmailcoms-projects/insight-mcrm
 ```
 
 ### GitHub 저장소
 
 ```
-백엔드: https://github.com/soona046-design/2025_MCRM.git
-브랜치: main
-백업 브랜치: backup-before-cafe24-static
+백엔드 (+ 모노레포 루트):  https://github.com/soona046-design/2025_MCRM.git
+  브랜치: main, feature/date-range-filtering(작업중)
+
+프론트엔드 (독립 레포, private): https://github.com/soona046-design/m-crm-project.git
+  브랜치: main(배포 대상), feature/date-range-filtering, backup-before-cafe24-static
+  ⚠️ Vercel 배포는 이 레포의 main push에 의해 트리거됨
 ```
 
 ---
@@ -487,13 +508,17 @@ npm run dev
 cd mcrm-backend
 composer run dev
 
-# Vercel 배포
-vercel --prod
-
-# Git 커밋 (Claude가 실행)
+# 프론트엔드 배포 (m-crm-project 자체 레포로 push → Vercel 자동 배포)
+cd m-crm-project
 git add .
 git commit -m "메시지"
 git push origin main
+
+# 백엔드 커밋 (FTP 업로드는 별도로 사용자가 진행)
+cd ../mcrm-backend
+git add .
+git commit -m "메시지"
+git push origin main   # 모노레포(2025_MCRM) 쪽 origin
 ```
 
 ### 요청 템플릿
@@ -508,5 +533,5 @@ git push origin main
 ---
 
 **작성일**: 2025-11-25
-**최종 수정**: 2025-11-25
-**버전**: 1.0.0
+**최종 수정**: 2026-06-21 — 프론트엔드(`m-crm-project`)를 독립 GitHub 레포로 분리하고 Vercel Git 연동 자동배포로 전환(이전: `vercel --prod` 수동 배포)
+**버전**: 2.0.0
