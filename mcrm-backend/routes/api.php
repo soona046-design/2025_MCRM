@@ -40,6 +40,7 @@ Route::post('/collect/visit', [VisitController::class, 'store']);
 
 // 개발용 - 대시보드 임시 인증 제거
 Route::get('/dashboards/channel-pivot', [ChannelPivotController::class, 'index']);
+Route::get('/dashboards/funnel-dropoffs', [ChannelPivotController::class, 'dropoffs']);
 
 // 개발용 - 채널-진료 매트릭스 임시 인증 제거
 Route::get('/channel-treatment-matrix', [ChannelTreatmentMatrixController::class, 'index']);

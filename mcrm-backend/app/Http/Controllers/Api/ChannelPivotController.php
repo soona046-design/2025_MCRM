@@ -151,16 +151,16 @@ class ChannelPivotController extends Controller
             $categoryName = $firstLead->category_name ?? '알 수 없음';
             $categoryColor = $firstLead->category_color ?? '#9E9E9E';
 
-            // 누적 상태 기반 카운팅
+            // 누적 상태 기반 카운팅 (퍼널: 문의→상담→예약→계약)
             // new: leads (전환수) - 모든 리드가 new 이상
             // contacted 이상: tickets_count (상담수)
             $totalTickets = $leadsByChannel->filter(function($lead) {
-                return in_array($lead->status, ['contacted', 'pending', 'converted']);
+                return in_array($lead->status, ['contacted', 'scheduled', 'converted']);
             })->count();
 
-            // pending 이상: appointments_count (예약수)
+            // scheduled 이상: appointments_count (예약수)
             $totalAppointments = $leadsByChannel->filter(function($lead) {
-                return in_array($lead->status, ['pending', 'converted']);
+                return in_array($lead->status, ['scheduled', 'converted']);
             })->count();
 
             // converted: contracts_count (계약 완료)
@@ -255,12 +255,12 @@ class ChannelPivotController extends Controller
 
             // contacted 이상: tickets_count (상담 중인 리드)
             $totalTickets = $leadsByCategory->filter(function($lead) {
-                return in_array($lead->status, ['contacted', 'pending', 'converted']);
+                return in_array($lead->status, ['contacted', 'scheduled', 'converted']);
             })->count();
 
-            // pending 이상: appointments_count (약속 잡힌 리드)
+            // scheduled 이상: appointments_count (약속 잡힌 리드)
             $totalAppointments = $leadsByCategory->filter(function($lead) {
-                return in_array($lead->status, ['pending', 'converted']);
+                return in_array($lead->status, ['scheduled', 'converted']);
             })->count();
 
             // converted: contracts_count (계약 완료)
@@ -316,21 +316,21 @@ class ChannelPivotController extends Controller
 
                 // 채널별 상태 집계
                 $channelTickets = $leadsByChannel->filter(function($lead) {
-                    return in_array($lead->status, ['상담완료', '미팅완료', '계약완료']);
+                    return in_array($lead->status, ['contacted', 'scheduled', 'converted']);
                 })->count();
 
                 $channelAppointments = $leadsByChannel->filter(function($lead) {
-                    return in_array($lead->status, ['미팅완료', '계약완료']);
+                    return in_array($lead->status, ['scheduled', 'converted']);
                 })->count();
 
                 $channelContracts = $leadsByChannel->filter(function($lead) {
-                    return $lead->status === '계약완료';
+                    return $lead->status === 'converted';
                 })->count();
 
                 // 채널별 수익 집계
                 $channelRevenue = 0;
                 $completedChannelLeads = $leadsByChannel->filter(function($lead) {
-                    return $lead->status === '계약완료';
+                    return $lead->status === 'converted';
                 });
                 foreach ($completedChannelLeads as $lead) {
                     $appointment = \App\Models\Appointment::where('lead_id', $lead->lead_id)->first();
@@ -422,12 +422,12 @@ class ChannelPivotController extends Controller
             // 상태 기반 카운팅
             // contacted 이상: tickets_count (상담 중인 리드)
             $totalTickets = $leadsByChannelCampaign->filter(function($lead) {
-                return in_array($lead->status, ['contacted', 'pending', 'converted']);
+                return in_array($lead->status, ['contacted', 'scheduled', 'converted']);
             })->count();
 
-            // pending 이상: appointments_count (약속 잡힌 리드)
+            // scheduled 이상: appointments_count (약속 잡힌 리드)
             $totalAppointments = $leadsByChannelCampaign->filter(function($lead) {
-                return in_array($lead->status, ['pending', 'converted']);
+                return in_array($lead->status, ['scheduled', 'converted']);
             })->count();
 
             // converted: contracts_count (계약 완료)
@@ -513,5 +513,71 @@ class ChannelPivotController extends Controller
             'categoryPerformance' => $categoryPerformanceData,
             'pivotTable' => $pivotTableData->toArray(),
         ]);
+    }
+
+    /**
+     * 퍼널 단계별 이탈(보류/거절) 리드 목록
+     * audit_logs에서 status가 pending/rejected로 바뀐 시점의 이전 status를 읽어
+     * "마지막으로 도달했던 단계"를 판별한다.
+     */
+    public function dropoffs(Request $request)
+    {
+        $startDate = $request->input('startDate');
+        $endDate = $request->input('endDate');
+
+        $leadsQuery = Lead::query()
+            ->leftJoin('visits', 'leads.source_visit_id', '=', 'visits.visit_id')
+            ->leftJoin('users', 'leads.assigned_user_id', '=', 'users.user_id')
+            ->whereIn('leads.status', ['pending', 'rejected'])
+            ->select(
+                'leads.*',
+                DB::raw("COALESCE(visits.utm_source, '채널 미확인') as utm_source"),
+                'users.name as assignee_name'
+            );
+
+        if ($startDate) {
+            $leadsQuery->whereDate('leads.created_at', '>=', $startDate);
+        }
+        if ($endDate) {
+            $leadsQuery->whereDate('leads.created_at', '<=', $endDate);
+        }
+
+        $leads = $leadsQuery->get();
+
+        $stageLabel = [
+            'new' => '문의',
+            'contacted' => '상담',
+            'scheduled' => '예약',
+            'converted' => '계약',
+        ];
+
+        $dropoffs = $leads->map(function ($lead) use ($stageLabel) {
+            $event = DB::table('audit_logs')
+                ->where('target_type', 'Lead')
+                ->where('target_id', $lead->lead_id)
+                ->where('new_values->status', $lead->status)
+                ->orderByDesc('at')
+                ->first();
+
+            $prevStatus = null;
+            if ($event && $event->old_values) {
+                $oldValues = json_decode($event->old_values, true);
+                $prevStatus = $oldValues['status'] ?? null;
+            }
+
+            return [
+                'lead_id' => $lead->lead_id,
+                'name' => $lead->name,
+                'primary_phone' => $lead->primary_phone,
+                'utm_source' => $lead->utm_source,
+                'assignee_name' => $lead->assignee_name ?? '미배정',
+                'status' => $lead->status,
+                'last_stage' => $stageLabel[$prevStatus] ?? '문의',
+                'dropped_at' => $event->at ?? $lead->created_at,
+                'memo' => $lead->memo,
+            ];
+        });
+
+        return Response::json(['dropoffs' => $dropoffs->values()]);
     }
 }

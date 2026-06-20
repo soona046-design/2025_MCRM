@@ -60,27 +60,6 @@ class Lead extends Model
         });
     }
 
-    /**
-     * Legacy status auto-conversion accessor
-     * Automatically converts old status values to unified status values
-     */
-    public function getStatusAttribute($value)
-    {
-        $statusMapping = [
-            'new'      => '신규',
-            'contacted' => '상담완료',
-            'converted' => '미팅완료',
-            'pending'  => '보류',
-            'rejected' => '거절',
-            // 레거시 값
-            '문의중'   => '신규',
-            '예약완료' => '미팅완료',
-            'closed'   => '계약완료',
-        ];
-
-        return $statusMapping[$value] ?? $value;
-    }
-
     // TODO: 중복 리드 병합을 위한 헬퍼 메서드 추가 필요
     // 예: public static function findDuplicate(array $identifiers) { ... }
 

@@ -31,7 +31,7 @@ class LeadController extends Controller
             'gender' => ['nullable', Rule::in(['male', 'female', 'other'])],
             'address' => 'nullable|string|max:255',
             'city' => 'nullable|string|max:255',
-            'status' => ['required', Rule::in(['new', 'contacted', 'pending', 'converted', 'rejected'])],
+            'status' => ['required', Rule::in(['new', 'contacted', 'scheduled', 'converted', 'pending', 'rejected'])],
             'score' => 'nullable|integer|min:0|max:100',
             'memo' => 'nullable|string',
             'utm_source' => 'nullable|string|max:100',
@@ -197,27 +197,27 @@ class LeadController extends Controller
             $lead->sla_status = $lead->tickets->isNotEmpty() ? ($lead->tickets->first()->sla_status ?? '-') : '-';
 
             // 상태 기반 카운팅 시스템
-            // 상담완료: ticket = 1
-            // 예약완료: ticket = 1, booking = 1
-            // 계약완료: ticket = 1, booking = 1, revenue = (실제 매출)
+            // 상담완료(contacted): ticket = 1
+            // 예약완료(scheduled): ticket = 1, booking = 1
+            // 계약완료(converted): ticket = 1, booking = 1, revenue = (실제 매출)
             $status = $lead->status;
 
-            if (in_array($status, ['상담완료', 'contacted'])) {
+            if ($status === 'contacted') {
                 $lead->tickets_count = 1;
                 $lead->appointments_count = 0;
                 $lead->revenue = 0;
-            } elseif (in_array($status, ['예약완료', 'converted'])) {
+            } elseif ($status === 'scheduled') {
                 $lead->tickets_count = 1;
                 $lead->appointments_count = 1;
                 $lead->revenue = 0;
-            } elseif (in_array($status, ['계약완료', 'closed'])) {
+            } elseif ($status === 'converted') {
                 $lead->tickets_count = 1;
                 $lead->appointments_count = 1;
                 // revenue는 Appointment 테이블의 total_revenue에서 가져옴
                 $appointment = \App\Models\Appointment::where('lead_id', $lead->lead_id)->first();
                 $lead->revenue = $appointment ? $appointment->total_revenue : 0;
             } else {
-                // 신규, 보류 등 다른 상태
+                // 신규, 보류, 거절 등 다른 상태
                 $lead->tickets_count = 0;
                 $lead->appointments_count = 0;
                 $lead->revenue = 0;
@@ -273,7 +273,7 @@ class LeadController extends Controller
             'gender' => ['nullable', Rule::in(['male', 'female', 'other'])],
             'address' => 'nullable|string|max:255',
             'city' => 'nullable|string|max:255',
-            'status' => ['sometimes', Rule::in(['new', 'contacted', 'pending', 'converted', 'rejected'])],
+            'status' => ['sometimes', Rule::in(['new', 'contacted', 'scheduled', 'converted', 'pending', 'rejected'])],
             'score' => 'nullable|integer|min:0|max:100',
             'memo' => 'nullable|string',
             'utm_source' => 'nullable|string|max:255',

@@ -4,6 +4,15 @@ _최종 업데이트: 2026-06-20_
 
 ---
 
+## 🟡 보류 — 추후 검토 (2026-06-20)
+
+- [ ] **[조사 필요] "상담" 단계가 실제 Ticket 레코드가 아닌 Lead.status로 집계됨**
+  `ChannelPivotController.php`의 문의/상담/예약/계약 카운트는 모두 같은 `leads` 테이블을 status 값으로 누적 필터링한 것 (61-88행에서 `$leads` 한 번만 조회, 별도 `Ticket` 테이블 조회 없음). `tickets_count`라는 필드명 때문에 실제 상담 티켓 수처럼 보이지만 실제론 `status ∈ {contacted, scheduled, converted}`인 리드 수일 뿐.
+  실제 `Ticket` 테이블 레코드 존재 여부 기준으로 맞출지(= 상담원이 실제로 티켓을 만들었는지) 여부는 보류 — 현재는 리드 상태값 통일 작업(6단계 퍼널 정렬)만 완료된 상태.
+  파일: `mcrm-backend/app/Http/Controllers/Api/ChannelPivotController.php`
+
+---
+
 ## 🔥 긴급 — 퍼널/채널 데이터 정합성 버그 (2026-06-20 코드+실DB 확인)
 
 > 운영 DB 직접 조회로 확인: `visits` 10건 존재하지만 `leads`(2건) 전부 `source_visit_id NULL` → 채널피벗/퍼널 집계 결과 0건. 아래 1·2가 직접 원인.
