@@ -88,6 +88,10 @@ class ChannelPivotController extends Controller
         $leads = $leadsQuery->get();
         Log::info('Leads fetched', ['count' => $leads->count(), 'first_lead' => $leads->first()]);
 
+        // pending/rejected 리드도 "마지막으로 도달했던 단계"를 퍼널 집계에 포함시키기 위한 유효 상태 맵
+        // (예: 예약 단계까지 갔다가 rejected된 리드는 '예약' 집계에서 그대로 빠지던 문제를 보정)
+        $effectiveStatusByLeadId = $this->resolveEffectiveStatuses($leads);
+
         // 약속 데이터 (leads->visits는 leftJoin: 채널 미연결 리드의 예약도 누락 없이 포함)
         $appointmentsQuery = Appointment::select(
             'appointments.*',
@@ -142,7 +146,7 @@ class ChannelPivotController extends Controller
         Log::info('Leads utm_sources before grouping', $leads->pluck('utm_source')->toArray());
 
         // Aggregate channel performance data (채널별 집계)
-        $channelPerformanceData = $leads->groupBy('utm_source')->map(function ($leadsByChannel, $channel) use ($appointments, $costImports, $adMetrics, $leads) {
+        $channelPerformanceData = $leads->groupBy('utm_source')->map(function ($leadsByChannel, $channel) use ($appointments, $costImports, $adMetrics, $leads, $effectiveStatusByLeadId) {
             $totalLeads = $leadsByChannel->count();
 
             // 카테고리 정보 가져오기 (첫 번째 lead에서)
@@ -153,14 +157,17 @@ class ChannelPivotController extends Controller
 
             // 누적 상태 기반 카운팅 (퍼널: 문의→상담→예약→계약)
             // new: leads (전환수) - 모든 리드가 new 이상
+            // pending/rejected 리드는 effectiveStatus(마지막 도달 단계)로 환산해서 집계
             // contacted 이상: tickets_count (상담수)
-            $totalTickets = $leadsByChannel->filter(function($lead) {
-                return in_array($lead->status, ['contacted', 'scheduled', 'converted']);
+            $totalTickets = $leadsByChannel->filter(function($lead) use ($effectiveStatusByLeadId) {
+                $status = $effectiveStatusByLeadId[$lead->lead_id] ?? $lead->status;
+                return in_array($status, ['contacted', 'scheduled', 'converted']);
             })->count();
 
             // scheduled 이상: appointments_count (예약수)
-            $totalAppointments = $leadsByChannel->filter(function($lead) {
-                return in_array($lead->status, ['scheduled', 'converted']);
+            $totalAppointments = $leadsByChannel->filter(function($lead) use ($effectiveStatusByLeadId) {
+                $status = $effectiveStatusByLeadId[$lead->lead_id] ?? $lead->status;
+                return in_array($status, ['scheduled', 'converted']);
             })->count();
 
             // converted: contracts_count (계약 완료)
@@ -240,7 +247,7 @@ class ChannelPivotController extends Controller
         Log::info('ChannelPerformanceData aggregated', ['data' => $channelPerformanceData]);
 
         // Aggregate category performance data (카테고리별 집계: 온라인/오프라인/DB)
-        $categoryPerformanceData = $leads->groupBy('category_code')->map(function ($leadsByCategory, $categoryCode) use ($appointments, $costImports, $adMetrics) {
+        $categoryPerformanceData = $leads->groupBy('category_code')->map(function ($leadsByCategory, $categoryCode) use ($appointments, $costImports, $adMetrics, $effectiveStatusByLeadId) {
             // 카테고리가 null인 경우 '기타'로 처리
             if (!$categoryCode) {
                 $categoryCode = 'other';
@@ -253,14 +260,16 @@ class ChannelPivotController extends Controller
 
             $totalLeads = $leadsByCategory->count();
 
-            // contacted 이상: tickets_count (상담 중인 리드)
-            $totalTickets = $leadsByCategory->filter(function($lead) {
-                return in_array($lead->status, ['contacted', 'scheduled', 'converted']);
+            // contacted 이상: tickets_count (상담 중인 리드) — pending/rejected는 마지막 도달 단계로 환산
+            $totalTickets = $leadsByCategory->filter(function($lead) use ($effectiveStatusByLeadId) {
+                $status = $effectiveStatusByLeadId[$lead->lead_id] ?? $lead->status;
+                return in_array($status, ['contacted', 'scheduled', 'converted']);
             })->count();
 
             // scheduled 이상: appointments_count (약속 잡힌 리드)
-            $totalAppointments = $leadsByCategory->filter(function($lead) {
-                return in_array($lead->status, ['scheduled', 'converted']);
+            $totalAppointments = $leadsByCategory->filter(function($lead) use ($effectiveStatusByLeadId) {
+                $status = $effectiveStatusByLeadId[$lead->lead_id] ?? $lead->status;
+                return in_array($status, ['scheduled', 'converted']);
             })->count();
 
             // converted: contracts_count (계약 완료)
@@ -311,16 +320,18 @@ class ChannelPivotController extends Controller
             $conversionRate = $totalLeads > 0 ? ($totalAppointments / $totalLeads) * 100 : 0;
 
             // 카테고리 내 채널별 세부 성과 데이터 생성
-            $channelDetails = $leadsByCategory->groupBy('utm_source')->map(function ($leadsByChannel, $channel) use ($costImports, $adMetrics) {
+            $channelDetails = $leadsByCategory->groupBy('utm_source')->map(function ($leadsByChannel, $channel) use ($costImports, $adMetrics, $effectiveStatusByLeadId) {
                 $channelLeads = $leadsByChannel->count();
 
-                // 채널별 상태 집계
-                $channelTickets = $leadsByChannel->filter(function($lead) {
-                    return in_array($lead->status, ['contacted', 'scheduled', 'converted']);
+                // 채널별 상태 집계 — pending/rejected는 마지막 도달 단계로 환산
+                $channelTickets = $leadsByChannel->filter(function($lead) use ($effectiveStatusByLeadId) {
+                    $status = $effectiveStatusByLeadId[$lead->lead_id] ?? $lead->status;
+                    return in_array($status, ['contacted', 'scheduled', 'converted']);
                 })->count();
 
-                $channelAppointments = $leadsByChannel->filter(function($lead) {
-                    return in_array($lead->status, ['scheduled', 'converted']);
+                $channelAppointments = $leadsByChannel->filter(function($lead) use ($effectiveStatusByLeadId) {
+                    $status = $effectiveStatusByLeadId[$lead->lead_id] ?? $lead->status;
+                    return in_array($status, ['scheduled', 'converted']);
                 })->count();
 
                 $channelContracts = $leadsByChannel->filter(function($lead) {
@@ -411,23 +422,25 @@ class ChannelPivotController extends Controller
         // 중첩된 groupBy 처리
         $pivotTableData = collect();
 
-        $leads->groupBy('utm_source')->each(function ($leadsByChannel, $channel) use (&$pivotTableData, $appointments, $costImports, $adMetrics) {
+        $leads->groupBy('utm_source')->each(function ($leadsByChannel, $channel) use (&$pivotTableData, $appointments, $costImports, $adMetrics, $effectiveStatusByLeadId) {
             $channel = $channel ?? '알 수 없음';
 
-            $leadsByChannel->groupBy('utm_campaign')->each(function ($leadsByChannelCampaign, $campaign) use (&$pivotTableData, $channel, $appointments, $costImports, $adMetrics) {
+            $leadsByChannel->groupBy('utm_campaign')->each(function ($leadsByChannelCampaign, $campaign) use (&$pivotTableData, $channel, $appointments, $costImports, $adMetrics, $effectiveStatusByLeadId) {
                 $campaign = $campaign ?? '알 수 없음';
 
                 $totalLeads = $leadsByChannelCampaign->count();
 
-            // 상태 기반 카운팅
+            // 상태 기반 카운팅 — pending/rejected는 마지막 도달 단계로 환산
             // contacted 이상: tickets_count (상담 중인 리드)
-            $totalTickets = $leadsByChannelCampaign->filter(function($lead) {
-                return in_array($lead->status, ['contacted', 'scheduled', 'converted']);
+            $totalTickets = $leadsByChannelCampaign->filter(function($lead) use ($effectiveStatusByLeadId) {
+                $status = $effectiveStatusByLeadId[$lead->lead_id] ?? $lead->status;
+                return in_array($status, ['contacted', 'scheduled', 'converted']);
             })->count();
 
             // scheduled 이상: appointments_count (약속 잡힌 리드)
-            $totalAppointments = $leadsByChannelCampaign->filter(function($lead) {
-                return in_array($lead->status, ['scheduled', 'converted']);
+            $totalAppointments = $leadsByChannelCampaign->filter(function($lead) use ($effectiveStatusByLeadId) {
+                $status = $effectiveStatusByLeadId[$lead->lead_id] ?? $lead->status;
+                return in_array($status, ['scheduled', 'converted']);
             })->count();
 
             // converted: contracts_count (계약 완료)
@@ -447,7 +460,7 @@ class ChannelPivotController extends Controller
                 }
             }
 
-            $totalCost = $costImports->where('platform', $channel)->where('campaign', $campaign)->sum('cost');
+            $totalCost = $costImports->where('platform', $channel)->where('campaign_code', $campaign)->sum('cost');
 
             // AdMetric 데이터 집계 (플랫폼 매핑)
             $platformMapping = [
@@ -513,6 +526,51 @@ class ChannelPivotController extends Controller
             'categoryPerformance' => $categoryPerformanceData,
             'pivotTable' => $pivotTableData->toArray(),
         ]);
+    }
+
+    /**
+     * pending/rejected 리드를 "마지막으로 도달했던 단계"로 환산한 맵을 반환한다.
+     * (new/contacted/scheduled/converted 상태인 리드는 호출부에서 현재 status를 그대로 사용)
+     * dropoffs()와 동일한 audit_logs 역추적 로직을 리드별 쿼리 대신 배치 쿼리로 처리한다.
+     *
+     * @return array<string, string> lead_id => effective status (new|contacted|scheduled|converted)
+     */
+    private function resolveEffectiveStatuses($leads): array
+    {
+        $pendingRejected = $leads->whereIn('status', ['pending', 'rejected']);
+        $leadIds = $pendingRejected->pluck('lead_id')->unique()->values()->toArray();
+
+        if (empty($leadIds)) {
+            return [];
+        }
+
+        $logsByLead = DB::table('audit_logs')
+            ->where('target_type', 'Lead')
+            ->whereIn('target_id', $leadIds)
+            ->orderByDesc('at')
+            ->get(['target_id', 'old_values', 'new_values'])
+            ->groupBy('target_id');
+
+        $effectiveStatus = [];
+        foreach ($pendingRejected as $lead) {
+            $logs = $logsByLead->get($lead->lead_id, collect());
+            $matchingLog = $logs->first(function ($log) use ($lead) {
+                $newValues = json_decode($log->new_values, true);
+                return ($newValues['status'] ?? null) === $lead->status;
+            });
+
+            $prevStatus = null;
+            if ($matchingLog && $matchingLog->old_values) {
+                $oldValues = json_decode($matchingLog->old_values, true);
+                $prevStatus = $oldValues['status'] ?? null;
+            }
+
+            $effectiveStatus[$lead->lead_id] = in_array($prevStatus, ['contacted', 'scheduled', 'converted'])
+                ? $prevStatus
+                : 'new';
+        }
+
+        return $effectiveStatus;
     }
 
     /**

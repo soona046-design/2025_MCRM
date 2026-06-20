@@ -107,11 +107,37 @@ vercel inspect <배포 URL>      # 특정 배포 상세 확인
 
 ## 🔧 백엔드 배포 (Cafe24)
 
-### 📦 Git + FTP 하이브리드 방식
+### ✅ Git + SFTP 자동 업로드 (2026-06-21부터)
 
-백엔드는 **Git으로 버전 관리** + **FTP로 서버 배포**
+백엔드는 **Git으로 버전 관리** + **SFTP로 서버 배포**. `deploy-backend.sh`(lftp 기반)와 `.env.deploy`(SFTP 자격증명, git에는 절대 커밋 안 됨 — `.gitignore` 처리)를 구축해서, 코드 파일 업로드는 Claude가 직접 스크립트로 자동 처리합니다.
 
-### Step 1: Git 커밋 (Claude가 실행)
+**사용 명령:**
+```
+"Claude, 백엔드 배포해줘"
+```
+Claude가 실행하는 것:
+```bash
+cd /Users/soona/Documents/인사이트/2025_MCRM/mcrm-backend
+git add . && git commit -m "..." && git push origin <branch>
+cd ..
+./deploy-backend.sh \
+  mcrm-backend/app/Http/Controllers/Api/XxxController.php /insightmcrm/laravel/app/Http/Controllers/Api/XxxController.php \
+  ...(수정된 파일만 반복)
+```
+
+⚠️ **자동화 범위 밖**: DB 스키마 변경(컬럼/enum 추가 등)은 SSH로 `php artisan migrate` 실행이 안 되는 환경이라 여전히 웹 기반 마이그레이션 스크립트(`/insightmcrm/www/`에 1회용 PHP 업로드 → 브라우저 실행 → 즉시 삭제) 방식을 그대로 사용합니다. Laravel 캐시(`config:cache`/`route:cache`)도 현재 운영에는 적용 안 돼 있어 캐시 클리어 없이 파일 교체만으로 반영됩니다(`bootstrap/cache`에 `routes-v7.php`/`config.php` 없는 것으로 확인, 2026-06-21).
+
+**최초 1회 설정 (`.env.deploy` 생성, 사용자가 직접 — 비밀번호가 대화 기록에 남지 않도록):**
+```bash
+cd /Users/soona/Documents/인사이트/2025_MCRM
+printf 'CAFE24_SFTP_HOST=insightmcrm.mycafe24.com\n' > .env.deploy
+printf 'CAFE24_SFTP_PORT=22\n' >> .env.deploy
+printf 'CAFE24_SFTP_USER=insightmcrm\n' >> .env.deploy
+printf 'CAFE24_SFTP_PASSWORD=%s\n' '실제비밀번호' >> .env.deploy
+chmod 600 .env.deploy
+```
+
+### (예전 방식) Git 커밋 후 FileZilla로 수동 업로드
 
 **사용자 요청:**
 ```
@@ -126,29 +152,16 @@ git commit -m "사용자가 요청한 수정 내용"
 git push origin main  # GitHub에 백업
 ```
 
-### Step 2: FTP 업로드 (사용자가 실행)
+### Step 2: SFTP 업로드 (Claude가 `deploy-backend.sh`로 자동 실행)
 
-**Claude가 알려주는 정보:**
+`.env.deploy`가 설정돼 있으면 Claude가 직접 업로드하고 결과를 알려줍니다. 사용자가 FileZilla를 열 필요 없음.
+
+```bash
+./deploy-backend.sh \
+  mcrm-backend/app/Http/Controllers/Api/LeadController.php /insightmcrm/laravel/app/Http/Controllers/Api/LeadController.php
 ```
-📤 FileZilla로 다음 파일을 업로드하세요:
 
-파일: app/Http/Controllers/Api/LeadController.php
-위치: /insightmcrm/laravel/app/Http/Controllers/Api/
-```
-
-**사용자 작업:**
-
-1. **FileZilla 실행**
-2. **Cafe24 서버 접속**
-   - 호스트: `insightmcrm.mycafe24.com`
-   - 사용자: `insightmcrm`
-   - 포트: `22` (SFTP)
-3. **원격 경로 이동:** `/insightmcrm/laravel/`
-4. **수정된 파일 업로드:**
-   - 로컬: `mcrm-backend/app/Http/Controllers/Api/LeadController.php`
-   - 서버: `/insightmcrm/laravel/app/Http/Controllers/Api/LeadController.php`
-   - 드래그 앤 드롭으로 덮어쓰기
-5. **완료!** ✅
+(`.env.deploy`가 없거나 자격증명이 만료된 경우에만 아래 FileZilla 수동 업로드로 대체)
 
 ### Step 3: 배포 확인
 
@@ -186,28 +199,18 @@ Claude:
 **시나리오:** LeadController에 새 메서드 추가
 
 ```
-사용자: "LeadController에 새 메서드 추가했어. 커밋해줘"
+사용자: "LeadController에 새 메서드 추가했어. 배포해줘"
 
 Claude:
 ✅ Git 커밋 완료: "LeadController에 새 메서드 추가"
 ✅ GitHub 푸시 완료!
+✅ deploy-backend.sh로 SFTP 업로드 완료 (바이트 일치 확인)
 
-📤 FileZilla로 다음 파일을 업로드하세요:
-
-파일: app/Http/Controllers/Api/LeadController.php
-위치: /insightmcrm/laravel/app/Http/Controllers/Api/
-
-업로드 후 알려주시면 테스트 도와드릴게요!
-
-사용자: "업로드 완료!"
-
-Claude:
-✅ 테스트해볼까요?
+테스트해볼까요?
    https://insightmcrm.mycafe24.com/api/leads
-   브라우저에서 확인해보세요!
 ```
 
-**작업 시간:** 3-5분 (FTP 업로드 포함)
+**작업 시간:** 1-2분 (자동 업로드)
 
 ---
 
@@ -216,26 +219,19 @@ Claude:
 **시나리오:** 3개 컨트롤러 수정
 
 ```
-사용자: "리드, 티켓, 예약 컨트롤러 3개 수정했어. 커밋해줘"
+사용자: "리드, 티켓, 예약 컨트롤러 3개 수정했어. 배포해줘"
 
 Claude:
 ✅ Git 커밋 완료: "리드, 티켓, 예약 컨트롤러 수정"
 ✅ GitHub 푸시 완료!
-
-📤 FileZilla로 다음 3개 파일을 업로드하세요:
-
-1. app/Http/Controllers/Api/LeadController.php
-2. app/Http/Controllers/Api/TicketController.php
-3. app/Http/Controllers/Api/AppointmentController.php
-
-모두 → /insightmcrm/laravel/app/Http/Controllers/Api/ 폴더에 업로드
+✅ deploy-backend.sh로 3개 파일 SFTP 업로드 완료
 ```
 
-**작업 시간:** 5-7분 (FTP 업로드 포함)
+**작업 시간:** 1-2분 (자동 업로드)
 
 ---
 
-## 🛠️ FileZilla 설정
+## 🛠️ FileZilla 설정 (예전 방식, `.env.deploy` 없을 때만 사용)
 
 ### 초기 설정 (1회만)
 
@@ -442,12 +438,13 @@ echo "</pre>";
 
 | 항목 | 프론트엔드 (Vercel) | 백엔드 (Cafe24) |
 |------|-------------------|----------------|
-| **방식** | GitHub 연동 완전 자동 (`git push`만 하면 끝) | Git + FTP 하이브리드 |
-| **소요 시간** | 1-2분 | 3-5분 |
-| **사용자 작업** | ✅ 없음 | FTP 업로드 |
-| **Claude 작업** | Git 커밋 + push (`m-crm-project` 자체 레포로) | Git 커밋 + 파일 목록 안내 |
-| **롤백** | `vercel rollback` 또는 이전 커밋으로 git revert 후 push | FTP로 이전 파일 재업로드 |
-| **환경 변수** | Vercel 대시보드 | `.env` 파일 (FTP) |
+| **방식** | GitHub 연동 완전 자동 (`git push`만 하면 끝) | Git + `deploy-backend.sh`(SFTP) 자동 업로드 |
+| **소요 시간** | 1-2분 | 1-2분 |
+| **사용자 작업** | ✅ 없음 | ✅ 없음 (최초 1회 `.env.deploy` 설정만) |
+| **Claude 작업** | Git 커밋 + push (`m-crm-project` 자체 레포로) | Git 커밋 + push + `deploy-backend.sh`로 SFTP 업로드 |
+| **롤백** | `vercel rollback` 또는 이전 커밋으로 git revert 후 push | 이전 커밋 파일을 `deploy-backend.sh`로 재업로드 |
+| **환경 변수** | Vercel 대시보드 | `mcrm-backend/.env` (서버에 직접, 배포 스크립트 대상 아님) |
+| **DB 스키마 변경** | (해당 없음) | 여전히 수동: 웹 마이그레이션 스크립트 1회용 업로드→실행→삭제 |
 
 ---
 
@@ -514,24 +511,26 @@ git add .
 git commit -m "메시지"
 git push origin main
 
-# 백엔드 커밋 (FTP 업로드는 별도로 사용자가 진행)
+# 백엔드 배포 (커밋 + push + SFTP 자동 업로드)
 cd ../mcrm-backend
 git add .
 git commit -m "메시지"
-git push origin main   # 모노레포(2025_MCRM) 쪽 origin
+git push origin <branch>   # 모노레포(2025_MCRM) 쪽 origin
+cd ..
+./deploy-backend.sh <로컬파일1> <원격경로1> [<로컬파일2> <원격경로2> ...]
 ```
 
 ### 요청 템플릿
 
 ```
 ✅ "Claude, 프론트엔드 배포해줘"
-✅ "Claude, 백엔드 커밋해줘"
+✅ "Claude, 백엔드 배포해줘"
 ✅ "Claude, UI 수정했으니까 배포해줘"
-✅ "Claude, API 추가했어, 커밋해줘"
+✅ "Claude, API 추가했어, 배포해줘"
 ```
 
 ---
 
 **작성일**: 2025-11-25
-**최종 수정**: 2026-06-21 — 프론트엔드(`m-crm-project`)를 독립 GitHub 레포로 분리하고 Vercel Git 연동 자동배포로 전환(이전: `vercel --prod` 수동 배포)
-**버전**: 2.0.0
+**최종 수정**: 2026-06-21 — 백엔드 배포를 FileZilla 수동 업로드에서 `deploy-backend.sh`(lftp+SFTP) 자동 업로드로 전환(DB 스키마 변경은 여전히 웹 마이그레이션 스크립트 수동 방식 유지)
+**버전**: 2.1.0

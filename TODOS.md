@@ -17,18 +17,16 @@ _최종 업데이트: 2026-06-20_
 
 > 운영 DB 직접 조회로 확인: `visits` 10건 존재하지만 `leads`(2건) 전부 `source_visit_id NULL` → 채널피벗/퍼널 집계 결과 0건. 아래 1·2가 직접 원인.
 
-- [x] **[BE-CRITICAL] 새 리드 등록 시 utm_source가 검증 규칙에 없어서 저장 안 됨** — 2026-06-20 코드 수정 완료, **배포 전(로컬 커밋만)**
+- [x] **[BE-CRITICAL] 새 리드 등록 시 utm_source가 검증 규칙에 없어서 저장 안 됨** — 2026-06-20 코드 수정, **2026-06-21 Cafe24 배포 완료**
   파일: `mcrm-backend/app/Http/Controllers/Api/LeadController.php` (`store()`, `update()`)
   `store()` 검증 규칙에 `utm_source` 추가 + Visit 생성/연결 로직 추가(`update()`와 동일 패턴), `ChannelCategoryHelper`로 `channel_category` 자동 분류도 같이 적용. 새 리드 생성 시 `source_visit_id`가 한 번도 set 안 되던 버그(=latest_visit_id만 저장되고 실제 귀속 컬럼은 항상 NULL)도 같이 수정.
   로컬에서 검증: 신규 리드(`utm_source: naver`) 등록 → `source_visit_id` 연결 + `channel_category: online` 자동 분류 + `/api/dashboards/channel-pivot` 집계에 정상 반영 확인.
-  **남은 작업**: Cafe24 FTP로 `LeadController.php` 배포 필요 (운영은 현재 이 파일 기준 더 오래된 버전 실행 중 — `status` 필드 required/sometimes 차이로 이미 한 번 확인됨)
 
-- [x] **[BE-CRITICAL] ChannelPivotController가 INNER JOIN으로 Visit 없는 리드를 전부 누락** — 2026-06-20 코드 수정 완료, **배포 전(로컬 커밋만)**
+- [x] **[BE-CRITICAL] ChannelPivotController가 INNER JOIN으로 Visit 없는 리드를 전부 누락** — 2026-06-20 코드 수정, **2026-06-21 Cafe24 배포 완료**
   파일: `mcrm-backend/app/Http/Controllers/Api/ChannelPivotController.php` (leads/appointments 쿼리)
   `leads`→`visits` join을 `leftJoin`으로 변경, `utm_source`를 `COALESCE(visits.utm_source, '채널 미확인')`으로 select해서 미연결 리드도 별도 채널로 집계됨. `appointments`→`visits` join도 동일하게 변경.
   로컬에서 검증: `source_visit_id=NULL`인 리드 생성 → `/api/dashboards/channel-pivot` 응답에 `"채널 미확인"` 항목으로 정상 집계 확인 (수정 전엔 결과에서 완전히 사라졌음).
-  **추가로 발견(별개 이슈, 미수정)**: 이 컨트롤러 내에서 `channelPerformanceData`/`categoryPerformanceData`/`pivotTableData`는 영문 status(`'converted'` 등)로 필터링하는데, 바로 아래 `categoryPerformanceData`의 `channelDetails` 서브집계(317-333행)는 한글 status(`'계약완료'` 등)로 필터링함. 같은 `$leads` 컬렉션인데 `Lead.php`의 `getStatusAttribute` accessor 활성화 여부에 따라 한쪽은 항상 0이 됨 — 위 "Lead.php accessor" 항목과 같은 근본 원인. 별도로 처리 필요.
-  **남은 작업**: Cafe24 FTP로 `ChannelPivotController.php` 배포 필요
+  **함께 배포됨**: `Lead.php`(한글 변환 accessor 제거로 영문/한글 status 혼용 버그 해소), `routes/api.php`(퍼널 이탈 분석 API 라우트), `leads.status` enum에 `scheduled` 추가(웹 마이그레이션 스크립트로 적용, 운영 컬럼이 원래 `varchar(255)`였던 것도 함께 enum으로 정리됨).
 
 - [ ] **[FE] 퍼널 대시보드 "계약완료" 카운트 로직이 죽어있음**
   파일: `m-crm-project/src/app/funnel/page.tsx:190-205`
@@ -64,11 +62,10 @@ _최종 업데이트: 2026-06-20_
 
 ## 🔥 긴급 — 즉시 처리
 
-- [ ] **[BE] 미커밋 변경사항 커밋**  
-  `LeadController.php` + `Lead.php` 수정 내용이 미커밋 상태  
-  커밋 후 Cafe24 FTP 배포 필요
-
 - [x] **[인프라] Cafe24 서버 memo 컬럼 추가** — 2026-06-20 완료, API로 정상 저장 확인
+
+- [x] **[인프라] 백엔드 FTP 배포 자동화** — 2026-06-21 완료
+  `deploy-backend.sh`(lftp 기반) + `.env.deploy`(SFTP 자격증명, gitignore 처리) 구축. `Claude, 백엔드 배포해줘"`로 파일 업로드까지 자동 처리 가능해짐 (DB 스키마 변경은 여전히 웹 스크립트 방식 필요).
 
 - [ ] **[인프라] Cafe24 사용자 데이터 확인**  
   1. FTP로 `check-users.php` 업로드  
