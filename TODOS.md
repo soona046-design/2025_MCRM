@@ -1,6 +1,6 @@
 # M-CRM TODO
 
-_최종 업데이트: 2026-06-21_
+_최종 업데이트: 2026-06-22_
 
 ---
 
@@ -75,12 +75,11 @@ _최종 업데이트: 2026-06-21_
   - `CostImport` 모델의 실제 `$fillable`(`platform`,`campaign_code`,`date`,`impressions`,`clicks`,`cost`)과 안 맞던 반환 키(`channel`,`campaign`)도 같이 수정 — 이전엔 API가 200을 받아도 `CostImport::create()`가 두 필드를 조용히 버렸을 것
   - 또한 `config('services.naver_ads.*')`(존재하지 않는 키, env 기본값으로 우연히 동작 중)를 `config('ads.naver.*')`로 통일해 Google/Meta와 일치시킴
   - **검증**: 실제 자격증명으로 `getAdCosts('2026-06-19','2026-06-20')` 호출 → 캠페인 3개(`인사이트`/`파워컨텐츠#1`/`플레이스`) × 2일 = 6건, 실제 노출/클릭/비용 데이터 정상 반환 확인
-  - **남은 항목**: `ChannelPivotController::index()`가 여전히 `mockMode`를 거치지 않고 이 메서드를 무조건 호출함(아래 별도 항목) — 이제 엔드포인트가 맞으므로 페이지 로드마다 실제 네이버 서버에 캠페인 수×날짜 수만큼 호출이 나간다는 점 주의. 날짜 범위가 길면 호출 수가 늘어나는 것도 추후 캐싱/배치 전환 검토 필요
+  - mockMode 미적용 + 매 호출 문제는 바로 아래 항목에서 해결됨
 
-- [ ] **[BE-CRITICAL] 채널피벗 페이지를 열 때마다 mock 설정과 무관하게 네이버 API를 실제로 호출**
-  파일: `mcrm-backend/app/Http/Controllers/Api/ChannelPivotController.php:40` (`index()`)
-  `NaverAdsApiService::getAdCosts()`를 직접 호출하는데 이 메서드엔 `mockMode` 체크가 없음(`mockMode` 체크는 `fetchWeekly()`에만 있고 `index()`는 `fetchWeekly()`를 쓰지 않음). 결과: `ADS_MOCK` 설정과 무관하게 새로고침마다 실패하는 외부 API를 또 호출 → 로그에 동일 404가 반복 적재됨.
-  **해결 방향**: `getAdCosts()` 호출부에도 `mockMode` 체크 추가, 또는 `index()`도 `fetchWeekly()`로 통일
+- [x] **[BE-CRITICAL] 채널피벗 페이지를 열 때마다 mock 설정과 무관하게 네이버 API를 실제로 호출** — 2026-06-22 수정 완료, Cafe24 배포 완료
+  파일: `mcrm-backend/app/Services/Ads/NaverAdsApiService.php` (`getAdCosts()`)
+  `getAdCosts()` 시작부에 `if ($this->mockMode) { return []; }` 체크를 직접 추가(호출부인 `ChannelPivotController::index()`를 바꾸는 대신 메서드 자체를 안전하게 만드는 방향 선택). 운영 `.env`는 `ADS_MOCK=false`라 mock 분기는 타지 않지만, 실호출 결과를 `Cache::remember()`로 15분 캐싱 추가해서 같은 기간을 반복 조회할 때(페이지 새로고침 등) 매번 네이버 서버를 다시 두드리지 않도록 함.
 
 - [ ] **[BE] Google/Meta Ads 자격증명이 비어있음 (코드 구조 자체는 정상)**
   Google: `.env`의 `GOOGLE_ADS_CLIENT_ID`/`CLIENT_SECRET`/`REFRESH_TOKEN`/`DEVELOPER_TOKEN`/`CUSTOMER_ID`가 전부 빈 값 → 토큰 발급 단계에서 `Missing required parameter: refresh_token`으로 실패
