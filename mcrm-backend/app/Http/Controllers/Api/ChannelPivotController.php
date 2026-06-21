@@ -16,6 +16,24 @@ use App\Services\Ads\NaverAdsApiService;
 
 class ChannelPivotController extends Controller
 {
+    /**
+     * 채널(visits.utm_source, 한글/영문 표기 혼재) → 광고 플랫폼 코드(ad_metrics.platform,
+     * cost_imports.platform과 동일한 영문 코드 컨벤션) 매핑.
+     * utm_source는 자유 입력값이라 같은 채널이 '네이버'/'naver'처럼 여러 표기로 섞여 들어옴.
+     */
+    private const PLATFORM_MAPPING = [
+        '네이버' => 'naver',
+        'naver' => 'naver',
+        '구글' => 'google',
+        'google' => 'google',
+        'Google Ads' => 'google',
+        '메타' => 'meta',
+        'meta' => 'meta',
+        'facebook' => 'meta',
+        'Facebook Ads' => 'meta',
+        'instagram' => 'meta',
+    ];
+
     protected $naverAdsApiService;
 
     public function __construct(NaverAdsApiService $naverAdsApiService)
@@ -41,7 +59,7 @@ class ChannelPivotController extends Controller
                 Log::info('Naver Ads API costs fetched', ['count' => count($naverCosts)]);
 
                 // 기존 데이터 삭제 (Naver)
-                CostImport::where('platform', '네이버')->whereBetween('date', [$startDate, $endDate])->delete();
+                CostImport::where('platform', 'naver')->whereBetween('date', [$startDate, $endDate])->delete();
 
                 // 기존 데이터 삭제 (Facebook)
                 CostImport::where('platform', 'Facebook')->whereBetween('date', [$startDate, $endDate])->delete();
@@ -188,14 +206,12 @@ class ChannelPivotController extends Controller
                 }
             }
 
-            $totalCost = $costImports->where('platform', $channel)->sum('cost');
+            // 채널(visits.utm_source, 한글/영문 표기가 혼재) → 광고 플랫폼 코드(ad_metrics/cost_imports와 동일한 영문 코드) 매핑
+            $platformMapping = self::PLATFORM_MAPPING;
+            // cost_imports.platform은 항상 영문 코드로 저장되므로, 매핑이 없으면 $channel 그대로 시도(수동 입력 비용 등 대비)
+            $totalCost = $costImports->where('platform', $platformMapping[$channel] ?? $channel)->sum('cost');
 
             // AdMetric 데이터 집계 (플랫폼 매핑)
-            $platformMapping = [
-                '네이버' => 'naver',
-                'Google Ads' => 'google',
-                'Facebook Ads' => 'meta',
-            ];
             $adPlatform = $platformMapping[$channel] ?? null;
             $totalImpressions = 0;
             $totalClicks = 0;
@@ -289,20 +305,17 @@ class ChannelPivotController extends Controller
                 }
             }
 
-            // 카테고리에 속한 모든 채널의 비용 합산
+            // 카테고리에 속한 모든 채널의 비용 합산 (utm_source → cost_imports.platform 코드로 변환)
             $categoryChannels = $leadsByCategory->pluck('utm_source')->unique();
-            $totalCost = $costImports->whereIn('platform', $categoryChannels)->sum('cost');
+            $categoryPlatforms = $categoryChannels->map(fn ($channel) => self::PLATFORM_MAPPING[$channel] ?? $channel)->unique();
+            $totalCost = $costImports->whereIn('platform', $categoryPlatforms)->sum('cost');
 
             // AdMetric 데이터 집계 (카테고리에 속한 모든 플랫폼)
             $totalImpressions = 0;
             $totalClicks = 0;
 
             foreach ($categoryChannels as $channel) {
-                $platformMapping = [
-                    '네이버' => 'naver',
-                    'Google Ads' => 'google',
-                    'Facebook Ads' => 'meta',
-                ];
+                $platformMapping = self::PLATFORM_MAPPING;
                 $adPlatform = $platformMapping[$channel] ?? null;
 
                 if ($adPlatform) {
@@ -351,14 +364,10 @@ class ChannelPivotController extends Controller
                 }
 
                 // 채널별 비용
-                $channelCost = $costImports->where('platform', $channel)->sum('cost');
+                $platformMapping = self::PLATFORM_MAPPING;
+                $channelCost = $costImports->where('platform', $platformMapping[$channel] ?? $channel)->sum('cost');
 
                 // 채널별 AdMetric 데이터
-                $platformMapping = [
-                    '네이버' => 'naver',
-                    'Google Ads' => 'google',
-                    'Facebook Ads' => 'meta',
-                ];
                 $adPlatform = $platformMapping[$channel] ?? null;
 
                 $channelImpressions = 0;
@@ -425,7 +434,16 @@ class ChannelPivotController extends Controller
         $leads->groupBy('utm_source')->each(function ($leadsByChannel, $channel) use (&$pivotTableData, $appointments, $costImports, $adMetrics, $effectiveStatusByLeadId) {
             $channel = $channel ?? '알 수 없음';
 
-            $leadsByChannel->groupBy('utm_campaign')->each(function ($leadsByChannelCampaign, $campaign) use (&$pivotTableData, $channel, $appointments, $costImports, $adMetrics, $effectiveStatusByLeadId) {
+            // 채널 단위 비용/실적 총합을 먼저 한 번만 계산해둔다.
+            // utm_campaign(마케터가 임의로 입력하는 추적값, 예: "campaign_0")은 cost_imports.campaign_code
+            // (네이버 실제 캠페인명, 예: "인사이트")와 전혀 다른 값이라 정확히 매칭되는 경우가 거의 없다.
+            // 정확한 캠페인 단위 비용 추적은 현재 데이터로는 불가능하므로, 채널 총비용을 리드 수 비율로
+            // 캠페인별 분배해서 "0원"보다 의미 있는 근사치를 보여준다(채널 내 캠페인 비용 합 = 채널 총비용).
+            $channelPlatformMapping = self::PLATFORM_MAPPING;
+            $channelTotalLeads = $leadsByChannel->count();
+            $channelTotalCost = $costImports->where('platform', $channelPlatformMapping[$channel] ?? $channel)->sum('cost');
+
+            $leadsByChannel->groupBy('utm_campaign')->each(function ($leadsByChannelCampaign, $campaign) use (&$pivotTableData, $channel, $appointments, $costImports, $adMetrics, $effectiveStatusByLeadId, $channelTotalLeads, $channelTotalCost) {
                 $campaign = $campaign ?? '알 수 없음';
 
                 $totalLeads = $leadsByChannelCampaign->count();
@@ -460,14 +478,11 @@ class ChannelPivotController extends Controller
                 }
             }
 
-            $totalCost = $costImports->where('platform', $channel)->where('campaign_code', $campaign)->sum('cost');
+            $platformMapping = self::PLATFORM_MAPPING;
+            // 채널 총비용을 이 캠페인의 리드 점유율만큼 분배 (정확한 캠페인별 비용 매칭 불가 — 위 설명 참고)
+            $totalCost = $channelTotalLeads > 0 ? $channelTotalCost * ($totalLeads / $channelTotalLeads) : 0;
 
             // AdMetric 데이터 집계 (플랫폼 매핑)
-            $platformMapping = [
-                '네이버' => 'naver',
-                'Google Ads' => 'google',
-                'Facebook Ads' => 'meta',
-            ];
             $adPlatform = $platformMapping[$channel] ?? null;
             $totalImpressions = 0;
             $totalClicks = 0;

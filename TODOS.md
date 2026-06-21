@@ -1,6 +1,6 @@
 # M-CRM TODO
 
-_최종 업데이트: 2026-06-20_
+_최종 업데이트: 2026-06-21_
 
 ---
 
@@ -57,6 +57,63 @@ _최종 업데이트: 2026-06-20_
   로컬에서 리드 생성 시 응답이 `"status":"신규"`로 옴(accessor 적용) vs 운영 API 직접 호출 시 `"status":"new"`로 옴(accessor 미적용) — 운영이 이 모델의 더 오래된 버전을 실행 중인 것으로 추정.
   이게 `ChannelPivotController`에서 전에 발견한 "상위 집계는 영문 status, 세부 집계는 한글 status 체크" 불일치의 근본 원인일 가능성 높음(Eloquent 모델 경유 시엔 accessor가 적용돼 한글로 보이고, Query Builder/raw 비교 시엔 영문 그대로라 동시에 혼재).
   **주의**: `Lead.php`를 그대로 운영에 FTP 배포하면 모든 리드 API 응답의 status가 갑자기 한글로 바뀌어 프론트엔드 표시/필터링이 깨질 수 있음 — 배포 전 영향 범위 확인 필요
+
+---
+
+## 🔥 긴급 — 광고비 연동 API 전부 깨짐 (2026-06-21 코드+.env 직접 확인)
+
+> 채널피벗 대시보드 광고비/ROI가 항상 0 또는 더미값인 근본 원인. 보고받은 내용을 코드와 `.env` 대조로 직접 재확인함.
+
+- [x] **[BE-CRITICAL] 네이버 검색광고 API 엔드포인트/헤더가 실제 스펙과 다름 (HTTP 404)** — 2026-06-21 수정 완료, 실제 자격증명으로 end-to-end 검증
+  파일: `mcrm-backend/app/Services/Ads/NaverAdsApiService.php`, `config/ads.php`, `.env`
+  공식 레포(`naver/searchad-apidoc`)의 php-sample/java-sample 코드를 직접 대조해서 수정:
+  - `base_url` 기본값이 `https://api.naver.com/naver-searchad-api/v2`(완전히 잘못된 도메인+경로)였음 → `https://api.searchad.naver.com`로 수정 (`.env`의 `NAVER_ADS_BASE_URL`도 같이 수정)
+  - 헤더 `X-CUSTOMER-ID` → `X-Customer`로 수정
+  - 엔드포인트를 `/stats/campaign`(존재하지 않음) → `GET /stats`로 수정. `/stats`는 `ids`(캠페인/그룹 등 객체 ID) 파라미터가 필수라서, 먼저 `GET /ncc/campaigns`로 캠페인 목록을 가져온 뒤 캠페인별로 `/stats` 호출하도록 구조 변경
+  - **실험으로 발견한 계정 제약**: `timeIncrement`(일별 분할) 파라미터를 보내면 `11001 지원하지 않는 기능입니다` 에러 — 이 계정에서는 일별 통계 분할이 막혀있음. 대신 `since=until=같은 날짜`로 날짜별로 반복 호출하는 방식으로 우회
+  - 응답 파싱도 실제 응답 형태(`{"data":[{"id","impCnt","clkCnt","salesAmt","ccnt"}],"compTm",...}`)에 맞춰 재작성
+  - `CostImport` 모델의 실제 `$fillable`(`platform`,`campaign_code`,`date`,`impressions`,`clicks`,`cost`)과 안 맞던 반환 키(`channel`,`campaign`)도 같이 수정 — 이전엔 API가 200을 받아도 `CostImport::create()`가 두 필드를 조용히 버렸을 것
+  - 또한 `config('services.naver_ads.*')`(존재하지 않는 키, env 기본값으로 우연히 동작 중)를 `config('ads.naver.*')`로 통일해 Google/Meta와 일치시킴
+  - **검증**: 실제 자격증명으로 `getAdCosts('2026-06-19','2026-06-20')` 호출 → 캠페인 3개(`인사이트`/`파워컨텐츠#1`/`플레이스`) × 2일 = 6건, 실제 노출/클릭/비용 데이터 정상 반환 확인
+  - **남은 항목**: `ChannelPivotController::index()`가 여전히 `mockMode`를 거치지 않고 이 메서드를 무조건 호출함(아래 별도 항목) — 이제 엔드포인트가 맞으므로 페이지 로드마다 실제 네이버 서버에 캠페인 수×날짜 수만큼 호출이 나간다는 점 주의. 날짜 범위가 길면 호출 수가 늘어나는 것도 추후 캐싱/배치 전환 검토 필요
+
+- [ ] **[BE-CRITICAL] 채널피벗 페이지를 열 때마다 mock 설정과 무관하게 네이버 API를 실제로 호출**
+  파일: `mcrm-backend/app/Http/Controllers/Api/ChannelPivotController.php:40` (`index()`)
+  `NaverAdsApiService::getAdCosts()`를 직접 호출하는데 이 메서드엔 `mockMode` 체크가 없음(`mockMode` 체크는 `fetchWeekly()`에만 있고 `index()`는 `fetchWeekly()`를 쓰지 않음). 결과: `ADS_MOCK` 설정과 무관하게 새로고침마다 실패하는 외부 API를 또 호출 → 로그에 동일 404가 반복 적재됨.
+  **해결 방향**: `getAdCosts()` 호출부에도 `mockMode` 체크 추가, 또는 `index()`도 `fetchWeekly()`로 통일
+
+- [ ] **[BE] Google/Meta Ads 자격증명이 비어있음 (코드 구조 자체는 정상)**
+  Google: `.env`의 `GOOGLE_ADS_CLIENT_ID`/`CLIENT_SECRET`/`REFRESH_TOKEN`/`DEVELOPER_TOKEN`/`CUSTOMER_ID`가 전부 빈 값 → 토큰 발급 단계에서 `Missing required parameter: refresh_token`으로 실패
+  Meta: `.env`에 `META_ACCESS_TOKEN`/`AD_ACCOUNT_ID`/`APP_ID`/`APP_SECRET` 자체가 없음(빈 값이 아니라 줄 자체가 없음)
+  `GoogleAdsClient.php`(OAuth+GAQL), `MetaClient.php`(Graph API) 구현 자체는 구조적으로 문제 없어 보임 — 자격증명 발급은 사용자가 직접 해야 하는 부분
+  **해결 방향**: 어떤 플랫폼 광고 계정 접근 권한을 갖고 있는지 먼저 확인 필요 (사용자 자격증명 발급 의존)
+
+- [ ] **[DB] 광고비 데이터가 `cost_imports`/`ad_metrics` 두 테이블로 이원화**
+  파일: `ChannelPivotController.php:44-52,116`(`CostImport`), `:136`(`AdMetric`, `MarketingStatsController`/`FetchAdStats` 커맨드에서도 사용)
+  같은 컨트롤러 안에서 `CostImport`(플랫폼명 `'네이버'`/`'Facebook'` 문자열 키)와 `AdMetric`(코드 키)을 별도로 조회 — 어느 쪽이 진실 소스인지 불명확
+  **해결 방향**: `ad_metrics`를 단일 소스로 통합, `cost_imports` 용도 정리 또는 폐기
+
+- [x] **[BE] 채널명→광고 플랫폼 매핑 배열이 같은 파일에 4번 중복 하드코딩 + cost_imports.platform 표기 불일치로 비용이 항상 0** — 2026-06-21 수정 완료
+  파일: `ChannelPivotController.php`, `NaverAdsApiService.php`
+  네이버 API 연동을 고치고 나서야 드러난 버그: `$costImports->where('platform', $channel)`에서 `$channel`은 `visits.utm_source` 원본값(예: `naver`, 한글 `네이버`가 섞여 들어옴)인데, `NaverAdsApiService::getAdCosts()`는 `cost_imports.platform`에 한글 `'네이버'`를 저장하고 있어서 **절대 일치하지 않음** — 실데이터가 들어와도 화면엔 항상 ₩0으로 보임. 반면 `AdWebhookController`(웹훅으로 들어오는 비용)는 이미 `strtolower($platform)`로 영문 코드(`naver`/`google`/`meta`)를 쓰고 있었어서, `cost_imports.platform`의 올바른 컨벤션은 영문 코드였음이 확인됨.
+  - `NaverAdsApiService::getAdCosts()`가 저장하는 `platform` 값을 `'네이버'` → `'naver'`로 수정 (`ad_metrics`/`AdWebhookController`와 동일한 컨벤션으로 통일)
+  - `ChannelPivotController`의 4곳에 중복돼 있던 `$platformMapping = ['네이버' => 'naver', ...]` 배열을 `self::PLATFORM_MAPPING` 클래스 상수 하나로 통합(`naver`/`google`/`meta`/한글 표기 별칭 추가)하고, 비용 합산 쿼리(`$costImports->where('platform', ...)`) 4곳 모두 `$platformMapping[$channel] ?? $channel`로 변환해서 비교하도록 수정 (매핑 없는 값은 기존처럼 원본 그대로 비교해서 수동 입력 비용과의 호환성 유지)
+  - 테스트 중 잘못된 컨벤션(`'네이버'`)으로 쌓인 임시 `cost_imports` 행 231건 로컬 DB에서 정리
+  - **검증**: 실제 네이버 API 데이터를 가져와서 채널피벗 API 응답에 `"channel":"naver","cost":196378,"roi":-100` 식으로 비용이 정상 반영되는 것까지 확인
+  - `channel_category_mappings` 테이블을 단일 소스로 활용하는 더 근본적인 통합은 여전히 미적용(아래 항목들과 연결된 더 큰 작업) — 이번엔 당장 비용이 0으로 보이는 문제만 스코프로 좁혀서 수정
+
+- [x] **[FE] 채널피벗 상단 요약 카드("총 광고비" 등)가 채널 카테고리별 카드는 정상인데 0으로 표시** — 2026-06-21 수정 완료
+  파일: `m-crm-project/src/app/channel-pivot/page.tsx`
+  요약 카드(총 광고비/총 수익/평균 ROI/평균 전환율) 계산이 `pivotTableData`(캠페인 단위, `combinedData`)에서 `cost`/`revenue`를 합산하고 있었는데, 백엔드 `pivotTableData` 집계는 `cost_imports`를 `platform` + `campaign_code`(=utm_campaign)로 같이 매칭함 — `NaverAdsApiService`가 저장하는 실제 캠페인명("인사이트" 등)과 리드의 `utm_campaign` 값이 거의 일치하지 않아 캠페인 단위 비용은 거의 항상 0. 반면 `channelPerformance`(채널 단위, platform만 매칭)는 위 항목에서 이미 정상화됨.
+  **해결**: 요약 카드 합산을 `response.data.channelPerformance`에서 직접 하도록 변경(`combinedData` 대신). 실제로 "총 광고비 ₩2,177,769"로 정상 표시되는 것 확인.
+  **남은 캐벗**: 캠페인 단위(`pivotTableData`/"상세 성과" 탭의 캠페인별 비용)는 여전히 0으로 보일 수 있음 — `utm_campaign` vs 실제 광고 캠페인명 매칭 문제는 미해결 (별도 작업 필요) → 바로 아래 항목에서 해결함
+
+- [x] **[BE] "상세 성과" 탭 캠페인별 비용이 utm_campaign↔실제 캠페인명 불일치로 항상 0** — 2026-06-21 수정 완료
+  파일: `mcrm-backend/app/Http/Controllers/Api/ChannelPivotController.php` (pivotTableData 집계)
+  실데이터 확인: `visits.utm_campaign`은 마케터가 임의로 입력하는 추적값(`"campaign_0"`, `"campaign_1"`...)인데, `cost_imports.campaign_code`는 네이버 실제 캠페인명(`"인사이트"`, `"파워컨텐츠#1"`, `"플레이스"`)이라 **두 값이 같을 일이 구조적으로 없음** — `->where('campaign_code', $campaign)` 정확매칭은 항상 0건. 현재 데이터로는 캠페인 단위 비용을 정확히 추적할 방법이 없음(실제 네이버 캠페인 ID를 클릭 추적 시점에 저장하는 인프라가 없음).
+  **해결(근사치)**: 채널 단위 총비용을 먼저 계산해두고, 같은 채널 내 캠페인 그룹의 **리드 수 비율**로 분배(`channelTotalCost * (campaignLeads / channelTotalLeads)`) — 채널 내 캠페인별 비용 합 = 채널 총비용이 되도록 보장. 정확한 캠페인별 귀속은 아니지만 "항상 0"보다는 의미 있는 근사치.
+  **검증**: "상세 성과" 탭에서 총비용 ₩2,169,375로 정상 표시되는 것 화면으로 확인.
+  **진짜 근본 해결책(미적용)**: 네이버 광고 클릭 시 `nccCampaignId`를 추적 URL에 심어서 `visits`에 저장하는 인프라를 만들어야 정확한 캠페인 단위 귀속이 가능함 — SPEC 레벨 작업, 이번 스코프 밖.
 
 ---
 

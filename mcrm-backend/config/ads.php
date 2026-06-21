@@ -22,7 +22,7 @@ return [
     |
     */
     'naver' => [
-        'base_url' => env('NAVER_ADS_BASE_URL', 'https://api.naver.com/naver-searchad-api/v2'),
+        'base_url' => env('NAVER_ADS_BASE_URL', 'https://api.searchad.naver.com'),
         'access_license' => env('NAVER_ADS_ACCESS_LICENSE'),
         'secret_key' => env('NAVER_ADS_SECRET_KEY'),
         'customer_id' => env('NAVER_ADS_CUSTOMER_ID'),
