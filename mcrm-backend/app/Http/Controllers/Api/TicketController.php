@@ -48,10 +48,10 @@ class TicketController extends Controller
         if ($request->has('lead_id')) {
             $query->where('lead_id', $request->input('lead_id'));
         }
-        // SLA 관련 필터링 (예: sla_due_at이 임박한 티켓)
-        if ($request->has('sla_status')) {
-            $query->where('sla_status', $request->input('sla_status'));
-        }
+        // [SLA 기능 비활성화 2026-06-22]
+        // if ($request->has('sla_status')) {
+        //     $query->where('sla_status', $request->input('sla_status'));
+        // }
         if ($request->boolean('last_contact_at_null')) {
             $query->whereNull('last_contact_at');
         }
@@ -76,16 +76,16 @@ class TicketController extends Controller
         $tickets->getCollection()->transform(function ($ticket) {
             $ticket->assignee_name = $ticket->assignee->name ?? '미배정';
             $ticket->lead_name = $ticket->lead->name ?? 'N/A';
-            // SLA 타이머 계산
-            if ($ticket->sla_due_at) {
-                $now = Carbon::now();
-                $dueAt = Carbon::parse($ticket->sla_due_at);
-                $ticket->sla_timer = [
-                    'remaining' => $now->diffInMinutes($dueAt, false),
-                    'formatted' => $dueAt->diffForHumans(['parts' => 2]),
-                    'status' => $now->gt($dueAt) ? 'violated' : ($now->diffInMinutes($dueAt) <= 30 ? 'warning' : 'normal')
-                ];
-            }
+            // [SLA 기능 비활성화 2026-06-22]
+            // if ($ticket->sla_due_at) {
+            //     $now = Carbon::now();
+            //     $dueAt = Carbon::parse($ticket->sla_due_at);
+            //     $ticket->sla_timer = [
+            //         'remaining' => $now->diffInMinutes($dueAt, false),
+            //         'formatted' => $dueAt->diffForHumans(['parts' => 2]),
+            //         'status' => $now->gt($dueAt) ? 'violated' : ($now->diffInMinutes($dueAt) <= 30 ? 'warning' : 'normal')
+            //     ];
+            // }
             return $ticket;
         });
 

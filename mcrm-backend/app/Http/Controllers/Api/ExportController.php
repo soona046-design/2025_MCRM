@@ -108,7 +108,7 @@ class ExportController extends Controller
                 'assignee_name' => $ticket->assignee->name ?? '미배정',
                 'state' => $ticket->state,
                 'priority' => $ticket->priority,
-                'sla_status' => $ticket->sla_status,
+                // [SLA 기능 비활성화 2026-06-22] 'sla_status' => $ticket->sla_status,
                 'last_contact_at' => optional($ticket->last_contact_at)->format('Y-m-d H:i:s'),
                 'created_at' => $ticket->created_at->format('Y-m-d H:i:s'),
             ];
@@ -120,7 +120,7 @@ class ExportController extends Controller
             '담당자',
             '상태',
             '우선순위',
-            'SLA 상태',
+            // [SLA 기능 비활성화 2026-06-22] 'SLA 상태',
             '마지막 연락',
             '생성일',
         ];

@@ -96,9 +96,9 @@ class AgentDashboardController extends Controller
             }
             $averageResponseTime = ($respondedTicketsCount > 0) ? round($totalResponseTime / $respondedTicketsCount, 2) : 0;
 
-            // SLA 위반율 계산
-            $violatedTicketsCount = $tickets->where('sla_status', 'violated')->count();
-            $slaViolationRate = ($totalTickets > 0) ? round(($violatedTicketsCount / $totalTickets) * 100, 2) : 0;
+            // [SLA 기능 비활성화 2026-06-22]
+            // $violatedTicketsCount = $tickets->where('sla_status', 'violated')->count();
+            // $slaViolationRate = ($totalTickets > 0) ? round(($violatedTicketsCount / $totalTickets) * 100, 2) : 0;
 
             // 예약 전환율 (예약 수 / 티켓 수)
             $appointmentConversionRate = ($totalTickets > 0) ? round(($totalAppointments / $totalTickets) * 100, 2) : 0;
@@ -117,7 +117,7 @@ class AgentDashboardController extends Controller
                 'revenue' => $totalRevenue,
                 'appointment_conversion_rate' => $appointmentConversionRate,
                 'clinic_visit_conversion_rate' => $clinicVisitConversionRate,
-                'sla_violation_rate' => $slaViolationRate,
+                // [SLA 기능 비활성화 2026-06-22] 'sla_violation_rate' => $slaViolationRate,
             ];
         });
 

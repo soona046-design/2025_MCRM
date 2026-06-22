@@ -2,10 +2,10 @@
 
 namespace App\Providers;
 
-use App\Events\SlaViolated;
-use App\Listeners\SendSlaNotification;
-use App\Events\SlaWarning;
-use App\Listeners\SendSlaWarningNotification;
+// [SLA 기능 비활성화 2026-06-22] use App\Events\SlaViolated;
+// [SLA 기능 비활성화 2026-06-22] use App\Listeners\SendSlaNotification;
+// [SLA 기능 비활성화 2026-06-22] use App\Events\SlaWarning;
+// [SLA 기능 비활성화 2026-06-22] use App\Listeners\SendSlaWarningNotification;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
@@ -22,12 +22,13 @@ class EventServiceProvider extends ServiceProvider
         Registered::class => [
             SendEmailVerificationNotification::class,
         ],
-        \App\Events\SlaViolated::class => [
-            \App\Listeners\SendSlaViolationNotification::class,
-        ],
-        \App\Events\SlaWarning::class => [
-            \App\Listeners\SendSlaWarningNotification::class,
-        ],
+        // [SLA 기능 비활성화 2026-06-22]
+        // \App\Events\SlaViolated::class => [
+        //     \App\Listeners\SendSlaViolationNotification::class,
+        // ],
+        // \App\Events\SlaWarning::class => [
+        //     \App\Listeners\SendSlaWarningNotification::class,
+        // ],
         \App\Events\AppointmentReminderSent::class => [
             \App\Listeners\ProcessAppointmentReminder::class,
         ],

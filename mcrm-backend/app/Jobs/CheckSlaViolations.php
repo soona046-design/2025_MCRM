@@ -24,9 +24,15 @@ class CheckSlaViolations implements ShouldQueue
 
     /**
      * Execute the job.
+     *
+     * [SLA 기능 비활성화 2026-06-22] 스케줄러에서도 더 이상 호출되지 않지만, 혹시 수동으로
+     * dispatch되더라도 아무 동작도 하지 않도록 본문을 비워둠. 복구 시 아래 원본 로직 주석 해제.
      */
     public function handle(): void
     {
+        return;
+
+        /*
         $now = Carbon::now();
 
         // '신규' 또는 '진행' 상태이며, 마지막 접촉으로부터 일정 시간이 지난 티켓을 찾습니다.
@@ -62,5 +68,6 @@ class CheckSlaViolations implements ShouldQueue
                 event(new \App\Events\SlaWarning($ticket)); // SLA 경고 알림 이벤트 디스패치
             }
         }
+        */
     }
 }

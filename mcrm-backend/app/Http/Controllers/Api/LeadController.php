@@ -198,8 +198,8 @@ class LeadController extends Controller
             $lead->utm_source = $lead->sourceVisit->utm_source ?? '';
             $lead->utm_campaign = $lead->sourceVisit->utm_campaign ?? '';
             $lead->assignee_name = $lead->assignee->name ?? '미배정';
-            // 가장 최근 티켓의 SLA 상태를 가져옴
-            $lead->sla_status = $lead->tickets->isNotEmpty() ? ($lead->tickets->first()->sla_status ?? '-') : '-';
+            // [SLA 기능 비활성화 2026-06-22]
+            // $lead->sla_status = $lead->tickets->isNotEmpty() ? ($lead->tickets->first()->sla_status ?? '-') : '-';
 
             // 상태 기반 카운팅 시스템
             // 상담완료(contacted): ticket = 1
