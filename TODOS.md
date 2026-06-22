@@ -118,6 +118,14 @@ _최종 업데이트: 2026-06-22_
 
 ## 🔥 긴급 — 즉시 처리
 
+- [x] **[BE-CRITICAL] LeadController::store() 중복 탐색 로직이 phone/email 둘 다 없으면 임의 리드와 병합** — 2026-06-22 발견 및 수정 완료
+  파일: `mcrm-backend/app/Http/Controllers/Api/LeadController.php` (`store()`, 62행 부근)
+  `primary_phone`과 `email`이 둘 다 요청에 없으면 `where()` 클로저 안에 조건이 하나도 안 붙어 빈 WHERE가 되고, `->first()`가 테이블의 임의 리드(보통 첫 행)를 "기존 리드"로 오인해 그 리드에 강제로 병합(`update()`)되던 버그.
+  **수정**: `$hasPhone`(빈 문자열도 false 처리) 또는 `$emailHash`가 실제로 있을 때만 중복 탐색 쿼리를 실행, 둘 다 없으면 `$existingLead = null`로 무조건 신규 생성 분기로 보냄.
+  **검증**: (1) phone/email 없이 리드 생성 → 기존 리드 총 개수가 정상적으로 +1 증가(병합 안 됨) 확인. (2) 동일 `primary_phone`으로 두 번 생성 → 두 번째 요청이 첫 번째 `lead_id`로 정상 병합되는 기존 동작은 그대로 유지되는 것 확인(회귀 없음). 테스트 데이터 삭제 완료.
+
+
+
 - [x] **[인프라] Cafe24 서버 memo 컬럼 추가** — 2026-06-20 완료, API로 정상 저장 확인
 
 - [x] **[인프라] 백엔드 FTP 배포 자동화** — 2026-06-21 완료
@@ -130,17 +138,19 @@ _최종 업데이트: 2026-06-22_
 
 ## ⭐ 이번 주 목표
 
-- [ ] **[FE] 담당자(assignee) 매핑 시스템 구현** (30분)  
-  현재: `assignee_name` (string) 입력 → DB에 미저장  
-  목표: 사용자 목록 API 연동 → UUID 기반 `assigned_user_id` 저장  
-  파일: `m-crm-project/src/app/leads/page.tsx`
+- [x] **[FE] 담당자(assignee) 매핑 시스템 구현** — 2026-06-22 확인: 이미 구현 완료 상태였음
+  `fetchUsers()`(`leads/page.tsx:590`)가 `/api/users`에서 실사용자 목록 조회, `handleAssigneeChange`가 `assigned_user_id`(UUID) 세팅, 저장 payload에 포함. 백엔드 `LeadController::store()/update()`도 `assigned_user_id` 검증·저장 + `assignee()` 관계로 `assignee_name` 응답에 반영.
+  실제 로그인 토큰으로 리드 생성 API 호출해 `assigned_user_id` 정상 저장 확인(테스트 데이터 삭제 완료). 코드 변경 불필요했음.
+  **별개로 발견된 버그**: `LeadController::store()`의 중복 리드 탐색 로직이 `primary_phone`/`email`을 둘 다 안 보내면 빈 WHERE 조건이 되어 테이블의 임의 리드(첫 번째 행)와 강제로 "병합"됨 — phone 없이 들어오는 외부 연동(웹훅 등)에서 발생 가능. 별도 TODO로 분리 필요.
 
-- [ ] **[BE+FE] inquiry_date 컬럼 추가** (20분)  
-  BE: `leads` 테이블에 `inquiry_date date nullable` 추가 (웹 스크립트 방식)  
-  FE: API 요청 body에 `inquiry_date` 포함
+- [x] **[BE+FE] inquiry_date 컬럼 추가** — 2026-06-22 완료 (로컬 적용, Cafe24 배포는 별도)
+  BE: 마이그레이션 `2026_06_22_041127_add_inquiry_date_to_leads_table.php`로 `leads.inquiry_date date nullable` 추가 + `Lead.php` fillable/casts(date)에 추가 + `LeadController::store()/update()` validation(`nullable|date`)에 추가
+  FE: `leads/page.tsx` 저장 payload에 `inquiry_date` 포함, `Lead` 인터페이스에 `inquiry_date?` 추가, 수정 모달 진입 시 (이전엔 항상 `created_at` 기반 placeholder였던) `lead.inquiry_date`를 우선 사용하도록 `handleEditLeadClick` 변경
+  **검증**: API로 리드 생성(`inquiry_date:"2026-06-15"`) → 저장 확인, PUT으로 `"2026-06-18"`로 수정 → 정상 반영 확인. 테스트 데이터 삭제 완료.
+  **남은 작업**: 로컬 마이그레이션만 적용됨 — Cafe24 운영 반영은 CLAUDE.md의 웹 스크립트 방식(`SHOW TABLES LIKE` 체크 후 컬럼 추가 + migrations 테이블 수동 갱신)으로 별도 배포 필요
 
-- [ ] **[브랜치] feature/date-range-filtering → main 머지**  
-  로컬 브랜치 작업 내용 main에 병합 후 Vercel 재배포
+- [x] **[브랜치] feature/date-range-filtering → main 머지** — 2026-06-22 확인: 머지 불필요, 브랜치 정리 완료
+  `git diff main...feature/date-range-filtering`가 비어있고 `main..feature` 쪽에 고유 커밋이 0개 — 해당 브랜치는 이미 main의 조상 커밋이라 병합할 내용이 없었음. 사용자 확인 후 로컬+리모트(origin) 브랜치 삭제로 정리.
 
 ---
 

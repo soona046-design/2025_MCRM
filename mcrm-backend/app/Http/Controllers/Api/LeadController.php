@@ -34,6 +34,7 @@ class LeadController extends Controller
             'status' => ['required', Rule::in(['new', 'contacted', 'scheduled', 'converted', 'pending', 'rejected'])],
             'score' => 'nullable|integer|min:0|max:100',
             'memo' => 'nullable|string',
+            'inquiry_date' => 'nullable|date',
             'utm_source' => 'nullable|string|max:100',
             'latest_visit_id' => 'nullable|uuid|exists:visits,visit_id',
             'latest_ticket_id' => 'nullable|uuid|exists:tickets,ticket_id',
@@ -59,17 +60,21 @@ class LeadController extends Controller
         }
         unset($validatedData['utm_source']); // leads 테이블엔 해당 컬럼이 없음 (visits를 통해서만 보관)
 
-        // 중복 리드 탐색
-        $existingLead = Lead::where(function ($query) use ($validatedData, $emailHash) {
-            if (isset($validatedData['primary_phone'])) {
-                $query->where('primary_phone', $validatedData['primary_phone']);
-            }
-            if ($emailHash) {
-                // 전화번호가 없거나, 전화번호와 이메일 해시가 모두 일치하는 경우
-                $query->orWhere('email_hash', $emailHash);
-            }
-        })
-        ->first();
+        // 중복 리드 탐색 (전화번호/이메일이 둘 다 없으면 비교 기준이 없으므로 무조건 신규 생성)
+        $hasPhone = !empty($validatedData['primary_phone'] ?? null);
+        $existingLead = null;
+        if ($hasPhone || $emailHash) {
+            $existingLead = Lead::where(function ($query) use ($validatedData, $emailHash, $hasPhone) {
+                if ($hasPhone) {
+                    $query->where('primary_phone', $validatedData['primary_phone']);
+                }
+                if ($emailHash) {
+                    // 전화번호가 없거나, 전화번호와 이메일 해시가 모두 일치하는 경우
+                    $query->orWhere('email_hash', $emailHash);
+                }
+            })
+            ->first();
+        }
 
         // 리드 스코어 초기화 (기존 스코어가 있다면 가져오고, 없다면 0)
         $leadScore = $existingLead ? ($existingLead->score ?? 0) : 0;
@@ -276,6 +281,7 @@ class LeadController extends Controller
             'status' => ['sometimes', Rule::in(['new', 'contacted', 'scheduled', 'converted', 'pending', 'rejected'])],
             'score' => 'nullable|integer|min:0|max:100',
             'memo' => 'nullable|string',
+            'inquiry_date' => 'nullable|date',
             'utm_source' => 'nullable|string|max:255',
             'latest_visit_id' => 'nullable|uuid|exists:visits,visit_id',
             'latest_ticket_id' => 'nullable|uuid|exists:tickets,ticket_id',

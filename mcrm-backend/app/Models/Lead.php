@@ -33,6 +33,7 @@ class Lead extends Model
         'status',
         'score',
         'memo',
+        'inquiry_date',
         'latest_visit_id',
         'latest_ticket_id',
         'latest_appointment_id',
@@ -47,6 +48,7 @@ class Lead extends Model
     protected $casts = [
         'consent_flags' => 'array',
         'birth_date' => 'date',
+        'inquiry_date' => 'date',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
