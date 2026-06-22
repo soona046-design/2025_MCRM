@@ -147,7 +147,7 @@ _최종 업데이트: 2026-06-22_
   BE: 마이그레이션 `2026_06_22_041127_add_inquiry_date_to_leads_table.php`로 `leads.inquiry_date date nullable` 추가 + `Lead.php` fillable/casts(date)에 추가 + `LeadController::store()/update()` validation(`nullable|date`)에 추가
   FE: `leads/page.tsx` 저장 payload에 `inquiry_date` 포함, `Lead` 인터페이스에 `inquiry_date?` 추가, 수정 모달 진입 시 (이전엔 항상 `created_at` 기반 placeholder였던) `lead.inquiry_date`를 우선 사용하도록 `handleEditLeadClick` 변경
   **검증**: API로 리드 생성(`inquiry_date:"2026-06-15"`) → 저장 확인, PUT으로 `"2026-06-18"`로 수정 → 정상 반영 확인. 테스트 데이터 삭제 완료.
-  **남은 작업**: 로컬 마이그레이션만 적용됨 — Cafe24 운영 반영은 CLAUDE.md의 웹 스크립트 방식(`SHOW TABLES LIKE` 체크 후 컬럼 추가 + migrations 테이블 수동 갱신)으로 별도 배포 필요
+  **Cafe24 배포 완료** (2026-06-22): `deploy-backend.sh`로 `LeadController.php`/`Lead.php`/`UserController.php` SFTP 업로드 + `add-inquiry-date-column.php` 웹 스크립트로 운영 DB에 컬럼 추가(batch 5로 migrations 기록) 후 원격 파일 즉시 삭제(404 확인). `/api/users`, `/api/leads` 라우트 정상 응답(302, 500 아님) 확인.
 
 - [x] **[브랜치] feature/date-range-filtering → main 머지** — 2026-06-22 확인: 머지 불필요, 브랜치 정리 완료
   `git diff main...feature/date-range-filtering`가 비어있고 `main..feature` 쪽에 고유 커밋이 0개 — 해당 브랜치는 이미 main의 조상 커밋이라 병합할 내용이 없었음. 사용자 확인 후 로컬+리모트(origin) 브랜치 삭제로 정리.
