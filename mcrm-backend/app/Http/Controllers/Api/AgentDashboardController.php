@@ -16,7 +16,7 @@ class AgentDashboardController extends Controller
     /**
      * 상담자별 성과 데이터를 반환합니다.
      */
-    public function index(Request $request)
+    public function agentPerformance(Request $request)
     {
         // 유효성 검사 (필터 파라미터)
         $request->validate([
@@ -38,8 +38,9 @@ class AgentDashboardController extends Controller
             $query->where('user_id', $agentId);
         }
 
-        // 기본적으로 '상담매니저' 또는 '지점관리자' 역할을 가진 사용자만 대상으로
-        $query->whereIn('role', ['상담매니저', '지점관리자']);
+        // 기본적으로 상담/지점관리 역할을 가진 사용자만 대상으로
+        // role 컬럼이 자유 문자열이라 환경마다 표기가 다름(한글/영문 혼용) — 둘 다 매칭
+        $query->whereIn('role', ['상담매니저', '지점관리자', 'counselor', 'branch_manager']);
 
 
         $agents = $query->get();

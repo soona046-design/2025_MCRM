@@ -11,7 +11,6 @@ use App\Models\Lead;
 use App\Models\Appointment;
 use App\Models\CostImport;
 use App\Models\Visit;
-use App\Models\AdMetric;
 use App\Services\Ads\NaverAdsApiService;
 
 class ChannelPivotController extends Controller
@@ -55,19 +54,11 @@ class ChannelPivotController extends Controller
         if ($startDate && $endDate) {
             Log::info('Attempting to fetch Naver Ads data.', ['startDate' => $startDate, 'endDate' => $endDate]);
             try {
-                $naverCosts = $this->naverAdsApiService->getAdCosts($startDate, $endDate);
-                Log::info('Naver Ads API costs fetched', ['count' => count($naverCosts)]);
-
-                // 기존 데이터 삭제 (Naver)
-                CostImport::where('platform', 'naver')->whereBetween('date', [$startDate, $endDate])->delete();
-
-                // 기존 데이터 삭제 (Facebook)
+                // 기존 데이터 삭제 (Facebook) - 네이버 동기화는 syncCostImports()가 자체적으로 delete+create 처리
                 CostImport::where('platform', 'Facebook')->whereBetween('date', [$startDate, $endDate])->delete();
 
-                foreach ($naverCosts as $costData) {
-                    CostImport::create($costData);
-                }
-                Log::info('Naver Ads costs stored/updated in CostImport.', ['naverCosts' => $naverCosts]);
+                $naverCosts = $this->naverAdsApiService->syncCostImports($startDate, $endDate);
+                Log::info('Naver Ads costs stored/updated in CostImport.', ['count' => count($naverCosts)]);
 
             } catch (\Exception $e) {
                 Log::error('Error fetching/storing Naver Ads costs: ' . $e->getMessage(), ['exception' => $e]);
@@ -150,21 +141,10 @@ class ChannelPivotController extends Controller
         $costImports = $costImportsQuery->get();
         Log::info('CostImports fetched', ['count' => $costImports->count(), 'first_cost_import' => $costImports->first()]);
 
-        // Fetch AdMetric data (광고 성과 지표)
-        $adMetricsQuery = AdMetric::query();
-        if ($startDate) {
-            $adMetricsQuery->whereDate('date_start', '>=', $startDate);
-        }
-        if ($endDate) {
-            $adMetricsQuery->whereDate('date_end', '<=', $endDate);
-        }
-        $adMetrics = $adMetricsQuery->get();
-        Log::info('AdMetrics fetched', ['count' => $adMetrics->count(), 'first_ad_metric' => $adMetrics->first()]);
-
         Log::info('Leads utm_sources before grouping', $leads->pluck('utm_source')->toArray());
 
         // Aggregate channel performance data (채널별 집계)
-        $channelPerformanceData = $leads->groupBy('utm_source')->map(function ($leadsByChannel, $channel) use ($appointments, $costImports, $adMetrics, $leads, $effectiveStatusByLeadId) {
+        $channelPerformanceData = $leads->groupBy('utm_source')->map(function ($leadsByChannel, $channel) use ($appointments, $costImports, $leads, $effectiveStatusByLeadId) {
             $totalLeads = $leadsByChannel->count();
 
             // 카테고리 정보 가져오기 (첫 번째 lead에서)
@@ -211,16 +191,11 @@ class ChannelPivotController extends Controller
             // cost_imports.platform은 항상 영문 코드로 저장되므로, 매핑이 없으면 $channel 그대로 시도(수동 입력 비용 등 대비)
             $totalCost = $costImports->where('platform', $platformMapping[$channel] ?? $channel)->sum('cost');
 
-            // AdMetric 데이터 집계 (플랫폼 매핑)
-            $adPlatform = $platformMapping[$channel] ?? null;
-            $totalImpressions = 0;
-            $totalClicks = 0;
-
-            if ($adPlatform) {
-                $channelAdMetrics = $adMetrics->where('platform', $adPlatform);
-                $totalImpressions = $channelAdMetrics->sum('impressions');
-                $totalClicks = $channelAdMetrics->sum('clicks');
-            }
+            // 노출/클릭은 cost와 동일 소스(cost_imports)에서 집계 — ad_metrics 테이블은 채워주는
+            // 배치가 없어 항상 비어있어서, 예전엔 cost는 정상인데 노출/클릭만 0으로 보이는 불일치가 있었음
+            $channelCostImports = $costImports->where('platform', $platformMapping[$channel] ?? $channel);
+            $totalImpressions = $channelCostImports->sum('impressions');
+            $totalClicks = $channelCostImports->sum('clicks');
 
             $cpa = $totalLeads > 0 ? $totalCost / $totalLeads : 0;
             $roi = $totalCost > 0 ? (($totalRevenue - $totalCost) / $totalCost) * 100 : 0;
@@ -263,7 +238,7 @@ class ChannelPivotController extends Controller
         Log::info('ChannelPerformanceData aggregated', ['data' => $channelPerformanceData]);
 
         // Aggregate category performance data (카테고리별 집계: 온라인/오프라인/DB)
-        $categoryPerformanceData = $leads->groupBy('category_code')->map(function ($leadsByCategory, $categoryCode) use ($appointments, $costImports, $adMetrics, $effectiveStatusByLeadId) {
+        $categoryPerformanceData = $leads->groupBy('category_code')->map(function ($leadsByCategory, $categoryCode) use ($appointments, $costImports, $effectiveStatusByLeadId) {
             // 카테고리가 null인 경우 '기타'로 처리
             if (!$categoryCode) {
                 $categoryCode = 'other';
@@ -310,20 +285,9 @@ class ChannelPivotController extends Controller
             $categoryPlatforms = $categoryChannels->map(fn ($channel) => self::PLATFORM_MAPPING[$channel] ?? $channel)->unique();
             $totalCost = $costImports->whereIn('platform', $categoryPlatforms)->sum('cost');
 
-            // AdMetric 데이터 집계 (카테고리에 속한 모든 플랫폼)
-            $totalImpressions = 0;
-            $totalClicks = 0;
-
-            foreach ($categoryChannels as $channel) {
-                $platformMapping = self::PLATFORM_MAPPING;
-                $adPlatform = $platformMapping[$channel] ?? null;
-
-                if ($adPlatform) {
-                    $channelAdMetrics = $adMetrics->where('platform', $adPlatform);
-                    $totalImpressions += $channelAdMetrics->sum('impressions');
-                    $totalClicks += $channelAdMetrics->sum('clicks');
-                }
-            }
+            // 노출/클릭도 cost와 동일하게 cost_imports에서 집계 (카테고리에 속한 모든 플랫폼)
+            $totalImpressions = $costImports->whereIn('platform', $categoryPlatforms)->sum('impressions');
+            $totalClicks = $costImports->whereIn('platform', $categoryPlatforms)->sum('clicks');
 
             $cpa = $totalLeads > 0 ? $totalCost / $totalLeads : 0;
             $roi = $totalCost > 0 ? (($totalRevenue - $totalCost) / $totalCost) * 100 : 0;
@@ -333,7 +297,7 @@ class ChannelPivotController extends Controller
             $conversionRate = $totalLeads > 0 ? ($totalAppointments / $totalLeads) * 100 : 0;
 
             // 카테고리 내 채널별 세부 성과 데이터 생성
-            $channelDetails = $leadsByCategory->groupBy('utm_source')->map(function ($leadsByChannel, $channel) use ($costImports, $adMetrics, $effectiveStatusByLeadId) {
+            $channelDetails = $leadsByCategory->groupBy('utm_source')->map(function ($leadsByChannel, $channel) use ($costImports, $effectiveStatusByLeadId) {
                 $channelLeads = $leadsByChannel->count();
 
                 // 채널별 상태 집계 — pending/rejected는 마지막 도달 단계로 환산
@@ -367,16 +331,10 @@ class ChannelPivotController extends Controller
                 $platformMapping = self::PLATFORM_MAPPING;
                 $channelCost = $costImports->where('platform', $platformMapping[$channel] ?? $channel)->sum('cost');
 
-                // 채널별 AdMetric 데이터
-                $adPlatform = $platformMapping[$channel] ?? null;
-
-                $channelImpressions = 0;
-                $channelClicks = 0;
-                if ($adPlatform) {
-                    $channelAdMetrics = $adMetrics->where('platform', $adPlatform);
-                    $channelImpressions = $channelAdMetrics->sum('impressions');
-                    $channelClicks = $channelAdMetrics->sum('clicks');
-                }
+                // 채널별 노출/클릭 (cost와 동일하게 cost_imports에서 집계)
+                $channelCostImportsForDetail = $costImports->where('platform', $platformMapping[$channel] ?? $channel);
+                $channelImpressions = $channelCostImportsForDetail->sum('impressions');
+                $channelClicks = $channelCostImportsForDetail->sum('clicks');
 
                 $channelCpa = $channelLeads > 0 ? $channelCost / $channelLeads : 0;
                 $channelRoi = $channelCost > 0 ? (($channelRevenue - $channelCost) / $channelCost) * 100 : 0;
@@ -431,7 +389,7 @@ class ChannelPivotController extends Controller
         // 중첩된 groupBy 처리
         $pivotTableData = collect();
 
-        $leads->groupBy('utm_source')->each(function ($leadsByChannel, $channel) use (&$pivotTableData, $appointments, $costImports, $adMetrics, $effectiveStatusByLeadId) {
+        $leads->groupBy('utm_source')->each(function ($leadsByChannel, $channel) use (&$pivotTableData, $appointments, $costImports, $effectiveStatusByLeadId) {
             $channel = $channel ?? '알 수 없음';
 
             // 채널 단위 비용/실적 총합을 먼저 한 번만 계산해둔다.
@@ -441,9 +399,13 @@ class ChannelPivotController extends Controller
             // 캠페인별 분배해서 "0원"보다 의미 있는 근사치를 보여준다(채널 내 캠페인 비용 합 = 채널 총비용).
             $channelPlatformMapping = self::PLATFORM_MAPPING;
             $channelTotalLeads = $leadsByChannel->count();
-            $channelTotalCost = $costImports->where('platform', $channelPlatformMapping[$channel] ?? $channel)->sum('cost');
+            $channelCostImportsForPivot = $costImports->where('platform', $channelPlatformMapping[$channel] ?? $channel);
+            $channelTotalCost = $channelCostImportsForPivot->sum('cost');
+            // 노출/클릭도 비용과 같은 이유로 캠페인 단위 정확 매칭이 불가능해 리드 수 비율로 분배
+            $channelTotalImpressions = $channelCostImportsForPivot->sum('impressions');
+            $channelTotalClicks = $channelCostImportsForPivot->sum('clicks');
 
-            $leadsByChannel->groupBy('utm_campaign')->each(function ($leadsByChannelCampaign, $campaign) use (&$pivotTableData, $channel, $appointments, $costImports, $adMetrics, $effectiveStatusByLeadId, $channelTotalLeads, $channelTotalCost) {
+            $leadsByChannel->groupBy('utm_campaign')->each(function ($leadsByChannelCampaign, $campaign) use (&$pivotTableData, $channel, $appointments, $costImports, $effectiveStatusByLeadId, $channelTotalLeads, $channelTotalCost, $channelTotalImpressions, $channelTotalClicks) {
                 $campaign = $campaign ?? '알 수 없음';
 
                 $totalLeads = $leadsByChannelCampaign->count();
@@ -478,21 +440,11 @@ class ChannelPivotController extends Controller
                 }
             }
 
-            $platformMapping = self::PLATFORM_MAPPING;
-            // 채널 총비용을 이 캠페인의 리드 점유율만큼 분배 (정확한 캠페인별 비용 매칭 불가 — 위 설명 참고)
-            $totalCost = $channelTotalLeads > 0 ? $channelTotalCost * ($totalLeads / $channelTotalLeads) : 0;
-
-            // AdMetric 데이터 집계 (플랫폼 매핑)
-            $adPlatform = $platformMapping[$channel] ?? null;
-            $totalImpressions = 0;
-            $totalClicks = 0;
-
-            if ($adPlatform) {
-                // 캠페인별로도 필터링 (meta_json에 campaign 정보가 있다면)
-                $campaignAdMetrics = $adMetrics->where('platform', $adPlatform);
-                $totalImpressions = $campaignAdMetrics->sum('impressions');
-                $totalClicks = $campaignAdMetrics->sum('clicks');
-            }
+            // 채널 총비용/노출/클릭을 이 캠페인의 리드 점유율만큼 분배 (정확한 캠페인별 매칭 불가 — 위 설명 참고)
+            $leadShare = $channelTotalLeads > 0 ? ($totalLeads / $channelTotalLeads) : 0;
+            $totalCost = $channelTotalCost * $leadShare;
+            $totalImpressions = (int) round($channelTotalImpressions * $leadShare);
+            $totalClicks = (int) round($channelTotalClicks * $leadShare);
 
             $cpa = $totalLeads > 0 ? $totalCost / $totalLeads : 0;
             $roas = $totalCost > 0 ? ($totalRevenue / $totalCost) * 100 : 0;
@@ -507,7 +459,7 @@ class ChannelPivotController extends Controller
             // 전환율 (리드 → 예약)
             $conversionRate = $totalLeads > 0 ? ($totalAppointments / $totalLeads) * 100 : 0;
 
-            // 데이터 출처 판단: AdMetrics 데이터가 있으면 API, 없으면 수동 입력
+            // 데이터 출처 판단: cost_imports에 실제 API 수집 데이터가 있으면 API, 없으면 수동 입력
             $source = ($totalImpressions > 0 || $totalClicks > 0) ? 'api' : 'manual';
 
             $pivotTableData->push([

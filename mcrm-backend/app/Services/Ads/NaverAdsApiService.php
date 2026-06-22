@@ -293,6 +293,42 @@ class NaverAdsApiService
     }
 
     /**
+     * 지정 기간의 네이버 광고비를 가져와 cost_imports 테이블에 영구 저장(해당 기간만 삭제 후 재생성).
+     * ChannelPivotController(대시보드 조회 시점)와 ads:collect-costs 배치 커맨드가 동일 로직을 공유하도록 추출.
+     *
+     * - API 호출(네트워크 I/O, 느림)은 트랜잭션 밖에서 먼저 끝내고, DB delete+recreate만 트랜잭션으로
+     *   묶어서 요청이 중간에 끊겨도(타임아웃 등) 기존 데이터가 삭제된 채로 복구 안 되는 상태가 안 되게 함.
+     * - 빈 배열이 돌아오면(캠페인 조회 실패 등 일시적 오류) 기존에 저장된 데이터를 보존하기 위해
+     *   delete+recreate를 건너뜀 — 그렇지 않으면 일시 오류로 멀쩍한 기존 데이터까지 같이 사라짐.
+     *
+     * @return array 새로 저장된 비용 레코드 배열 (빈 배열이면 기존 데이터를 그대로 유지했다는 뜻)
+     */
+    public function syncCostImports(string $startDate, string $endDate): array
+    {
+        $naverCosts = $this->getAdCosts($startDate, $endDate);
+
+        if (empty($naverCosts)) {
+            Log::warning('syncCostImports: 네이버 API 결과가 비어있어 기존 cost_imports를 보존하고 갱신을 건너뜀', [
+                'startDate' => $startDate,
+                'endDate' => $endDate,
+            ]);
+            return [];
+        }
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($naverCosts, $startDate, $endDate) {
+            \App\Models\CostImport::where('platform', 'naver')
+                ->whereBetween('date', [$startDate, $endDate])
+                ->delete();
+
+            foreach ($naverCosts as $costData) {
+                \App\Models\CostImport::create($costData);
+            }
+        });
+
+        return $naverCosts;
+    }
+
+    /**
      * 캠페인 목록 조회 후 캠페인×날짜 조합을 동시 요청으로 가져와 CostImport 저장용 형태로 변환
      */
     protected function fetchAdCostsFromApi(string $startDate, string $endDate): array
