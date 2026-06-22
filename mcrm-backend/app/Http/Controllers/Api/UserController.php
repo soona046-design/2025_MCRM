@@ -15,7 +15,7 @@ class UserController extends Controller
      */
     public function index(Request $request)
     {
-        $users = User::paginate(15); // 15 users per page
+        $users = User::paginate((int) $request->input('per_page', 15));
         
         if ($request->boolean('mask_sensitive', true)) {
             $users->through(function ($user) {
@@ -34,16 +34,19 @@ class UserController extends Controller
     public function store(Request $request)
     {
         $request->validate([
+            'login_id' => 'required|string|max:255|unique:users,login_id',
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:8',
-            'role' => ['required', 'string', Rule::in(['admin', 'agent', 'client'])], // 예시 역할
-            'clinic_id' => 'nullable|uuid',
+            // role은 환경마다 표기가 다른(admin/super_admin/상담매니저 등) 자유 문자열 컬럼이라 화이트리스트를 두지 않음
+            'role' => 'required|string|max:50',
+            'clinic_id' => 'nullable|string|max:255', // users.clinic_id는 UUID가 아닌 일반 문자열 컬럼
             'phone' => 'nullable|string|max:20',
             'active' => 'boolean',
         ]);
 
         $user = User::create([
+            'login_id' => $request->login_id,
             'name' => $request->name,
             'email' => $request->email,
             'password' => Hash::make($request->password),
@@ -73,16 +76,17 @@ class UserController extends Controller
         $user = User::where('user_id', $id)->firstOrFail();
 
         $request->validate([
+            'login_id' => ['sometimes', 'required', 'string', 'max:255', Rule::unique('users', 'login_id')->ignore($user->user_id, 'user_id')],
             'name' => 'sometimes|required|string|max:255',
             'email' => ['sometimes', 'required', 'string', 'email', 'max:255', Rule::unique('users')->ignore($user->user_id, 'user_id')],
             'password' => 'sometimes|required|string|min:8',
-            'role' => ['sometimes', 'required', 'string', Rule::in(['admin', 'agent', 'client'])],
-            'clinic_id' => 'nullable|uuid',
+            'role' => 'sometimes|required|string|max:50',
+            'clinic_id' => 'nullable|string|max:255', // users.clinic_id는 UUID가 아닌 일반 문자열 컬럼
             'phone' => 'nullable|string|max:20',
             'active' => 'sometimes|boolean',
         ]);
 
-        $userData = $request->only(['name', 'email', 'role', 'clinic_id', 'phone', 'active']);
+        $userData = $request->only(['login_id', 'name', 'email', 'role', 'clinic_id', 'phone', 'active']);
         if ($request->has('password')) {
             $userData['password'] = Hash::make($request->password);
         }
