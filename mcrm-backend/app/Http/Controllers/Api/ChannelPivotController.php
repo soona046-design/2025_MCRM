@@ -33,6 +33,16 @@ class ChannelPivotController extends Controller
         'instagram' => 'meta',
     ];
 
+    /**
+     * cost_imports.platform 코드 → 화면 표시용 채널명.
+     * 해당 기간에 리드가 없어 utm_source로 채널명을 알 수 없는 플랫폼의 광고비 행에 사용.
+     */
+    private const PLATFORM_DISPLAY_NAMES = [
+        'naver' => '네이버',
+        'google' => '구글',
+        'meta' => '메타',
+    ];
+
     protected $naverAdsApiService;
 
     public function __construct(NaverAdsApiService $naverAdsApiService)
@@ -386,103 +396,78 @@ class ChannelPivotController extends Controller
         Log::info('CategoryPerformanceData aggregated', ['data' => $categoryPerformanceData]);
 
         // Aggregate pivot table data (캠페인별 세부 데이터)
-        // 중첩된 groupBy 처리
+        // API 수집 채널(네이버 등)은 cost_imports.campaign_code(실제 캠페인명: 인사이트/파워컨텐츠#1/플레이스 등)
+        // 기준으로 행을 분리해 캠페인별 실제 노출/클릭/비용을 그대로 보여준다.
+        // 리드는 utm_campaign이 캠페인명과 정확히 일치할 때만 해당 행에 합쳐지고, 일치하지 않는
+        // 리드 그룹(utm_campaign은 마케터 임의 입력값이라 대부분 불일치)은 비용 0인 별도 행으로 유지한다.
+        // 이전의 "채널 총비용을 리드 수 비율로 분배" 방식은 캠페인별 실제 성과를 왜곡해서 폐기.
         $pivotTableData = collect();
+        $emittedPlatforms = [];
 
-        $leads->groupBy('utm_source')->each(function ($leadsByChannel, $channel) use (&$pivotTableData, $appointments, $costImports, $effectiveStatusByLeadId) {
-            $channel = $channel ?? '알 수 없음';
+        $leads->groupBy('utm_source')->each(function ($leadsByChannel, $channel) use (&$pivotTableData, &$emittedPlatforms, $costImports, $effectiveStatusByLeadId) {
+            $channel = $channel ?: '알 수 없음';
+            $platform = self::PLATFORM_MAPPING[$channel] ?? $channel;
+            $apiCampaigns = $costImports->where('platform', $platform)->groupBy('campaign_code');
 
-            // 채널 단위 비용/실적 총합을 먼저 한 번만 계산해둔다.
-            // utm_campaign(마케터가 임의로 입력하는 추적값, 예: "campaign_0")은 cost_imports.campaign_code
-            // (네이버 실제 캠페인명, 예: "인사이트")와 전혀 다른 값이라 정확히 매칭되는 경우가 거의 없다.
-            // 정확한 캠페인 단위 비용 추적은 현재 데이터로는 불가능하므로, 채널 총비용을 리드 수 비율로
-            // 캠페인별 분배해서 "0원"보다 의미 있는 근사치를 보여준다(채널 내 캠페인 비용 합 = 채널 총비용).
-            $channelPlatformMapping = self::PLATFORM_MAPPING;
-            $channelTotalLeads = $leadsByChannel->count();
-            $channelCostImportsForPivot = $costImports->where('platform', $channelPlatformMapping[$channel] ?? $channel);
-            $channelTotalCost = $channelCostImportsForPivot->sum('cost');
-            // 노출/클릭도 비용과 같은 이유로 캠페인 단위 정확 매칭이 불가능해 리드 수 비율로 분배
-            $channelTotalImpressions = $channelCostImportsForPivot->sum('impressions');
-            $channelTotalClicks = $channelCostImportsForPivot->sum('clicks');
+            // 같은 플랫폼으로 매핑되는 utm_source가 여러 개('네이버'/'naver')여도 API 캠페인 행은 한 번만 만든다
+            $emitApiRows = $apiCampaigns->isNotEmpty() && !in_array($platform, $emittedPlatforms, true);
+            if ($emitApiRows) {
+                $emittedPlatforms[] = $platform;
+            }
 
-            $leadsByChannel->groupBy('utm_campaign')->each(function ($leadsByChannelCampaign, $campaign) use (&$pivotTableData, $channel, $appointments, $costImports, $effectiveStatusByLeadId, $channelTotalLeads, $channelTotalCost, $channelTotalImpressions, $channelTotalClicks) {
-                $campaign = $campaign ?? '알 수 없음';
+            $leadGroups = $leadsByChannel->groupBy('utm_campaign');
 
-                $totalLeads = $leadsByChannelCampaign->count();
-
-            // 상태 기반 카운팅 — pending/rejected는 마지막 도달 단계로 환산
-            // contacted 이상: tickets_count (상담 중인 리드)
-            $totalTickets = $leadsByChannelCampaign->filter(function($lead) use ($effectiveStatusByLeadId) {
-                $status = $effectiveStatusByLeadId[$lead->lead_id] ?? $lead->status;
-                return in_array($status, ['contacted', 'scheduled', 'converted']);
-            })->count();
-
-            // scheduled 이상: appointments_count (약속 잡힌 리드)
-            $totalAppointments = $leadsByChannelCampaign->filter(function($lead) use ($effectiveStatusByLeadId) {
-                $status = $effectiveStatusByLeadId[$lead->lead_id] ?? $lead->status;
-                return in_array($status, ['scheduled', 'converted']);
-            })->count();
-
-            // converted: contracts_count (계약 완료)
-            $totalContracts = $leadsByChannelCampaign->filter(function($lead) {
-                return $lead->status === 'converted';
-            })->count();
-
-            // converted: revenue 집계 (계약 완료된 리드의 수익)
-            $totalRevenue = 0;
-            $completedLeads = $leadsByChannelCampaign->filter(function($lead) {
-                return $lead->status === 'converted';
-            });
-            foreach ($completedLeads as $lead) {
-                $appointment = \App\Models\Appointment::where('lead_id', $lead->lead_id)->first();
-                if ($appointment) {
-                    $totalRevenue += $appointment->total_revenue ?? 0;
+            if ($emitApiRows) {
+                foreach ($apiCampaigns as $campaignCode => $campaignImports) {
+                    $pivotTableData->push($this->buildPivotRow(
+                        $channel,
+                        $campaignCode !== '' ? $campaignCode : '알 수 없음',
+                        $leadGroups->get($campaignCode, collect()),
+                        (int) $campaignImports->sum('impressions'),
+                        (int) $campaignImports->sum('clicks'),
+                        (float) $campaignImports->sum('cost'),
+                        'api',
+                        $effectiveStatusByLeadId
+                    ));
                 }
             }
 
-            // 채널 총비용/노출/클릭을 이 캠페인의 리드 점유율만큼 분배 (정확한 캠페인별 매칭 불가 — 위 설명 참고)
-            $leadShare = $channelTotalLeads > 0 ? ($totalLeads / $channelTotalLeads) : 0;
-            $totalCost = $channelTotalCost * $leadShare;
-            $totalImpressions = (int) round($channelTotalImpressions * $leadShare);
-            $totalClicks = (int) round($channelTotalClicks * $leadShare);
+            foreach ($leadGroups as $campaign => $leadsByCampaign) {
+                if ($emitApiRows && $campaign !== '' && $apiCampaigns->has($campaign)) {
+                    continue; // 위 API 캠페인 행에 이미 합쳐짐
+                }
+                $pivotTableData->push($this->buildPivotRow(
+                    $channel,
+                    $campaign !== '' && $campaign !== null ? $campaign : '알 수 없음',
+                    $leadsByCampaign,
+                    0,
+                    0,
+                    0,
+                    'manual',
+                    $effectiveStatusByLeadId
+                ));
+            }
+        });
 
-            $cpa = $totalLeads > 0 ? $totalCost / $totalLeads : 0;
-            $roas = $totalCost > 0 ? ($totalRevenue / $totalCost) * 100 : 0;
-            $cpc = $totalClicks > 0 ? $totalCost / $totalClicks : 0;
-
-            // CTR (클릭률) = 클릭 / 노출 × 100
-            $ctr = $totalImpressions > 0 ? ($totalClicks / $totalImpressions) * 100 : 0;
-
-            // CVR (전환율) = 전환 / 클릭 × 100
-            $cvr = $totalClicks > 0 ? ($totalLeads / $totalClicks) * 100 : 0;
-
-            // 전환율 (리드 → 예약)
-            $conversionRate = $totalLeads > 0 ? ($totalAppointments / $totalLeads) * 100 : 0;
-
-            // 데이터 출처 판단: cost_imports에 실제 API 수집 데이터가 있으면 API, 없으면 수동 입력
-            $source = ($totalImpressions > 0 || $totalClicks > 0) ? 'api' : 'manual';
-
-            $pivotTableData->push([
-                'id' => uniqid(), // Temporary ID
-                'channel' => $channel,
-                'campaign' => $campaign,
-                'impressions' => $totalImpressions,
-                'clicks' => $totalClicks,
-                'ctr' => round($ctr, 2),
-                'leads' => $totalLeads,
-                'cvr' => round($cvr, 2),
-                'tickets' => $totalTickets,
-                'appointments' => $totalAppointments,
-                'contracts' => $totalContracts,
-                'conversionRate' => round($conversionRate, 2),
-                'cost' => round($totalCost),
-                'revenue' => round($totalRevenue),
-                'cpc' => round($cpc),
-                'cpa' => round($cpa),
-                'roas' => round($roas),
-                'source' => $source, // API 데이터 vs 수동 입력 데이터 구분
-            ]);
-            });
+        // 해당 기간에 리드가 한 건도 없는 플랫폼의 광고비도 캠페인별로 표시한다
+        // (예: 네이버 유입 리드가 0건이어도 광고비는 집행되고 있으므로 화면에서 사라지면 안 됨)
+        $costImports->groupBy('platform')->each(function ($platformImports, $platform) use (&$pivotTableData, $emittedPlatforms, $effectiveStatusByLeadId) {
+            if (in_array($platform, $emittedPlatforms, true)) {
+                return;
+            }
+            $channelLabel = self::PLATFORM_DISPLAY_NAMES[$platform] ?? $platform;
+            foreach ($platformImports->groupBy('campaign_code') as $campaignCode => $campaignImports) {
+                $pivotTableData->push($this->buildPivotRow(
+                    $channelLabel,
+                    $campaignCode !== '' ? $campaignCode : '알 수 없음',
+                    collect(),
+                    (int) $campaignImports->sum('impressions'),
+                    (int) $campaignImports->sum('clicks'),
+                    (float) $campaignImports->sum('cost'),
+                    'api',
+                    $effectiveStatusByLeadId
+                ));
+            }
         });
 
         Log::info('PivotTableData aggregated', ['data' => $pivotTableData->toArray()]);
@@ -493,6 +478,69 @@ class ChannelPivotController extends Controller
             'categoryPerformance' => $categoryPerformanceData,
             'pivotTable' => $pivotTableData->toArray(),
         ]);
+    }
+
+    /**
+     * 피벗 테이블 행 하나를 생성한다.
+     * 노출/클릭/비용은 호출부에서 cost_imports 실측값(API 캠페인 행) 또는 0(리드 전용 행)으로 전달하고,
+     * 리드 퍼널 지표(리드/상담/예약/계약/수익)는 전달받은 리드 그룹에서 집계한다.
+     *
+     * @param \Illuminate\Support\Collection $campaignLeads 이 캠페인에 귀속된 리드 목록 (없으면 빈 컬렉션)
+     * @param array<string, string> $effectiveStatusByLeadId pending/rejected 리드의 마지막 도달 단계 맵
+     */
+    private function buildPivotRow(string $channel, string $campaign, $campaignLeads, int $impressions, int $clicks, float $cost, string $source, array $effectiveStatusByLeadId): array
+    {
+        $totalLeads = $campaignLeads->count();
+
+        // 상태 기반 카운팅 — pending/rejected는 마지막 도달 단계로 환산
+        $totalTickets = $campaignLeads->filter(function ($lead) use ($effectiveStatusByLeadId) {
+            $status = $effectiveStatusByLeadId[$lead->lead_id] ?? $lead->status;
+            return in_array($status, ['contacted', 'scheduled', 'converted']);
+        })->count();
+
+        $totalAppointments = $campaignLeads->filter(function ($lead) use ($effectiveStatusByLeadId) {
+            $status = $effectiveStatusByLeadId[$lead->lead_id] ?? $lead->status;
+            return in_array($status, ['scheduled', 'converted']);
+        })->count();
+
+        $convertedLeads = $campaignLeads->filter(fn ($lead) => $lead->status === 'converted');
+        $totalContracts = $convertedLeads->count();
+
+        $totalRevenue = 0;
+        foreach ($convertedLeads as $lead) {
+            $appointment = Appointment::where('lead_id', $lead->lead_id)->first();
+            if ($appointment) {
+                $totalRevenue += $appointment->total_revenue ?? 0;
+            }
+        }
+
+        $cpa = $totalLeads > 0 ? $cost / $totalLeads : 0;
+        $roas = $cost > 0 ? ($totalRevenue / $cost) * 100 : 0;
+        $cpc = $clicks > 0 ? $cost / $clicks : 0;
+        $ctr = $impressions > 0 ? ($clicks / $impressions) * 100 : 0;
+        $cvr = $clicks > 0 ? ($totalLeads / $clicks) * 100 : 0;
+        $conversionRate = $totalLeads > 0 ? ($totalAppointments / $totalLeads) * 100 : 0;
+
+        return [
+            'id' => uniqid(), // Temporary ID
+            'channel' => $channel,
+            'campaign' => $campaign,
+            'impressions' => $impressions,
+            'clicks' => $clicks,
+            'ctr' => round($ctr, 2),
+            'leads' => $totalLeads,
+            'cvr' => round($cvr, 2),
+            'tickets' => $totalTickets,
+            'appointments' => $totalAppointments,
+            'contracts' => $totalContracts,
+            'conversionRate' => round($conversionRate, 2),
+            'cost' => round($cost),
+            'revenue' => round($totalRevenue),
+            'cpc' => round($cpc),
+            'cpa' => round($cpa),
+            'roas' => round($roas),
+            'source' => $source, // API 데이터 vs 수동 입력 데이터 구분
+        ];
     }
 
     /**
