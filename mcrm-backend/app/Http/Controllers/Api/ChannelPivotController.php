@@ -6,12 +6,9 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use App\Models\Lead;
 use App\Models\Appointment;
 use App\Models\CostImport;
-use App\Models\Visit;
-use App\Services\Ads\NaverAdsApiService;
 
 class ChannelPivotController extends Controller
 {
@@ -43,39 +40,15 @@ class ChannelPivotController extends Controller
         'meta' => '메타',
     ];
 
-    protected $naverAdsApiService;
-
-    public function __construct(NaverAdsApiService $naverAdsApiService)
-    {
-        $this->naverAdsApiService = $naverAdsApiService;
-    }
-
     public function index(Request $request)
     {
-        Log::info('ChannelPivotController@index started.');
-        Log::info('All request parameters', $request->all());
         $startDate = $request->input('startDate');
         $endDate = $request->input('endDate');
         $clinicId = $request->input('clinicId');
 
-        Log::info('Request parameters', ['startDate' => $startDate, 'endDate' => $endDate, 'clinicId' => $clinicId]);
-
-        // Fetch Naver Ads data and store/update in CostImport
-        if ($startDate && $endDate) {
-            Log::info('Attempting to fetch Naver Ads data.', ['startDate' => $startDate, 'endDate' => $endDate]);
-            try {
-                // 기존 데이터 삭제 (Facebook) - 네이버 동기화는 syncCostImports()가 자체적으로 delete+create 처리
-                CostImport::where('platform', 'Facebook')->whereBetween('date', [$startDate, $endDate])->delete();
-
-                $naverCosts = $this->naverAdsApiService->syncCostImports($startDate, $endDate);
-                Log::info('Naver Ads costs stored/updated in CostImport.', ['count' => count($naverCosts)]);
-
-            } catch (\Exception $e) {
-                Log::error('Error fetching/storing Naver Ads costs: ' . $e->getMessage(), ['exception' => $e]);
-                // 예외 발생 시 빈 배열로 처리하거나, 에러를 프론트엔드로 전달하는 방식 선택
-                // 현재는 오류를 로그로 남기고 계속 진행 (데이터는 없을 수 있음)
-            }
-        }
+        // 네이버 광고비는 ads:collect-costs 배치(routes/console.php, 매일 02:00)가 cost_imports에
+        // 적재해 두므로 여기서는 테이블만 읽는다. 요청 시점에 네이버 API를 동기 호출하면
+        // 캠페인×일수만큼 요청이 발생해 첫 로딩이 2분 가까이 걸린다 (실측 119초).
 
         // Prepare base query for leads with visit information and category mapping
         // leftJoin 사용: source_visit_id가 없는 리드(채널 미연결)도 "채널 미확인"으로 집계에 포함시킴
@@ -85,6 +58,7 @@ class ChannelPivotController extends Controller
             ->select(
                 'leads.lead_id',
                 'leads.status',
+                'leads.created_at',
                 DB::raw("COALESCE(visits.utm_source, '채널 미확인') as utm_source"),
                 'visits.utm_campaign',
                 'visits.channel_category as category_code',
@@ -105,31 +79,20 @@ class ChannelPivotController extends Controller
         }
         
         $leads = $leadsQuery->get();
-        Log::info('Leads fetched', ['count' => $leads->count(), 'first_lead' => $leads->first()]);
 
         // pending/rejected 리드도 "마지막으로 도달했던 단계"를 퍼널 집계에 포함시키기 위한 유효 상태 맵
         // (예: 예약 단계까지 갔다가 rejected된 리드는 '예약' 집계에서 그대로 빠지던 문제를 보정)
         $effectiveStatusByLeadId = $this->resolveEffectiveStatuses($leads);
 
-        // 약속 데이터 (leads->visits는 leftJoin: 채널 미연결 리드의 예약도 누락 없이 포함)
-        $appointmentsQuery = Appointment::select(
-            'appointments.*',
-            DB::raw("COALESCE(visits.utm_source, '채널 미확인') as utm_source"),
-            'visits.utm_campaign'
-        )
-            ->join('leads', 'appointments.lead_id', '=', 'leads.lead_id')
-            ->leftJoin('visits', 'leads.source_visit_id', '=', 'visits.visit_id');
-
-        // Apply date filters to appointments
-        if ($startDate) {
-            $appointmentsQuery->whereDate('appointments.slot_at', '>=', $startDate);
-        }
-        if ($endDate) {
-            $appointmentsQuery->whereDate('appointments.slot_at', '<=', $endDate);
-        }
-
-        $appointments = $appointmentsQuery->get();
-        Log::info('Appointments fetched', ['count' => $appointments->count(), 'first_appointment' => $appointments->first()]);
+        // converted 리드의 수익(첫 예약의 total_revenue)을 리드별 개별 쿼리(N+1) 대신 한 번에 조회
+        $revenueByLeadId = Appointment::whereIn(
+                'lead_id',
+                $leads->where('status', 'converted')->pluck('lead_id')->unique()->values()
+            )
+            ->get(['lead_id', 'total_revenue'])
+            ->groupBy('lead_id')
+            ->map(fn ($group) => $group->first()->total_revenue ?? 0)
+            ->all();
 
         // Prepare base query for cost imports
         $costImportsQuery = CostImport::query();
@@ -149,12 +112,9 @@ class ChannelPivotController extends Controller
         // }
 
         $costImports = $costImportsQuery->get();
-        Log::info('CostImports fetched', ['count' => $costImports->count(), 'first_cost_import' => $costImports->first()]);
-
-        Log::info('Leads utm_sources before grouping', $leads->pluck('utm_source')->toArray());
 
         // Aggregate channel performance data (채널별 집계)
-        $channelPerformanceData = $leads->groupBy('utm_source')->map(function ($leadsByChannel, $channel) use ($appointments, $costImports, $leads, $effectiveStatusByLeadId) {
+        $channelPerformanceData = $leads->groupBy('utm_source')->map(function ($leadsByChannel, $channel) use ($costImports, $effectiveStatusByLeadId, $revenueByLeadId) {
             $totalLeads = $leadsByChannel->count();
 
             // 카테고리 정보 가져오기 (첫 번째 lead에서)
@@ -184,17 +144,8 @@ class ChannelPivotController extends Controller
             })->count();
 
             // converted: revenue 집계 (계약 완료된 리드의 수익)
-            $totalRevenue = 0;
-            $leadIds = $leadsByChannel->pluck('lead_id')->toArray();
-            $completedLeads = $leadsByChannel->filter(function($lead) {
-                return $lead->status === 'converted';
-            });
-            foreach ($completedLeads as $lead) {
-                $appointment = \App\Models\Appointment::where('lead_id', $lead->lead_id)->first();
-                if ($appointment) {
-                    $totalRevenue += $appointment->total_revenue ?? 0;
-                }
-            }
+            $totalRevenue = $leadsByChannel->filter(fn ($lead) => $lead->status === 'converted')
+                ->sum(fn ($lead) => $revenueByLeadId[$lead->lead_id] ?? 0);
 
             // 채널(visits.utm_source, 한글/영문 표기가 혼재) → 광고 플랫폼 코드(ad_metrics/cost_imports와 동일한 영문 코드) 매핑
             $platformMapping = self::PLATFORM_MAPPING;
@@ -245,10 +196,9 @@ class ChannelPivotController extends Controller
                 'roas' => round($roas, 2),
             ];
         })->values()->toArray();
-        Log::info('ChannelPerformanceData aggregated', ['data' => $channelPerformanceData]);
 
         // Aggregate category performance data (카테고리별 집계: 온라인/오프라인/DB)
-        $categoryPerformanceData = $leads->groupBy('category_code')->map(function ($leadsByCategory, $categoryCode) use ($appointments, $costImports, $effectiveStatusByLeadId) {
+        $categoryPerformanceData = $leads->groupBy('category_code')->map(function ($leadsByCategory, $categoryCode) use ($costImports, $effectiveStatusByLeadId, $revenueByLeadId) {
             // 카테고리가 null인 경우 '기타'로 처리
             if (!$categoryCode) {
                 $categoryCode = 'other';
@@ -279,16 +229,8 @@ class ChannelPivotController extends Controller
             })->count();
 
             // converted: revenue 집계 (계약 완료된 리드의 수익)
-            $totalRevenue = 0;
-            $completedLeads = $leadsByCategory->filter(function($lead) {
-                return $lead->status === 'converted';
-            });
-            foreach ($completedLeads as $lead) {
-                $appointment = \App\Models\Appointment::where('lead_id', $lead->lead_id)->first();
-                if ($appointment) {
-                    $totalRevenue += $appointment->total_revenue ?? 0;
-                }
-            }
+            $totalRevenue = $leadsByCategory->filter(fn ($lead) => $lead->status === 'converted')
+                ->sum(fn ($lead) => $revenueByLeadId[$lead->lead_id] ?? 0);
 
             // 카테고리에 속한 모든 채널의 비용 합산 (utm_source → cost_imports.platform 코드로 변환)
             $categoryChannels = $leadsByCategory->pluck('utm_source')->unique();
@@ -307,7 +249,7 @@ class ChannelPivotController extends Controller
             $conversionRate = $totalLeads > 0 ? ($totalAppointments / $totalLeads) * 100 : 0;
 
             // 카테고리 내 채널별 세부 성과 데이터 생성
-            $channelDetails = $leadsByCategory->groupBy('utm_source')->map(function ($leadsByChannel, $channel) use ($costImports, $effectiveStatusByLeadId) {
+            $channelDetails = $leadsByCategory->groupBy('utm_source')->map(function ($leadsByChannel, $channel) use ($costImports, $effectiveStatusByLeadId, $revenueByLeadId) {
                 $channelLeads = $leadsByChannel->count();
 
                 // 채널별 상태 집계 — pending/rejected는 마지막 도달 단계로 환산
@@ -326,16 +268,8 @@ class ChannelPivotController extends Controller
                 })->count();
 
                 // 채널별 수익 집계
-                $channelRevenue = 0;
-                $completedChannelLeads = $leadsByChannel->filter(function($lead) {
-                    return $lead->status === 'converted';
-                });
-                foreach ($completedChannelLeads as $lead) {
-                    $appointment = \App\Models\Appointment::where('lead_id', $lead->lead_id)->first();
-                    if ($appointment) {
-                        $channelRevenue += $appointment->total_revenue ?? 0;
-                    }
-                }
+                $channelRevenue = $leadsByChannel->filter(fn ($lead) => $lead->status === 'converted')
+                    ->sum(fn ($lead) => $revenueByLeadId[$lead->lead_id] ?? 0);
 
                 // 채널별 비용
                 $platformMapping = self::PLATFORM_MAPPING;
@@ -393,18 +327,18 @@ class ChannelPivotController extends Controller
                 'channels' => $channelDetails, // 세부 채널 데이터 추가
             ];
         })->values()->toArray();
-        Log::info('CategoryPerformanceData aggregated', ['data' => $categoryPerformanceData]);
 
-        // Aggregate pivot table data (캠페인별 세부 데이터)
+        // Aggregate pivot table data (캠페인×주별 세부 데이터)
         // API 수집 채널(네이버 등)은 cost_imports.campaign_code(실제 캠페인명: 인사이트/파워컨텐츠#1/플레이스 등)
         // 기준으로 행을 분리해 캠페인별 실제 노출/클릭/비용을 그대로 보여준다.
         // 리드는 utm_campaign이 캠페인명과 정확히 일치할 때만 해당 행에 합쳐지고, 일치하지 않는
         // 리드 그룹(utm_campaign은 마케터 임의 입력값이라 대부분 불일치)은 비용 0인 별도 행으로 유지한다.
         // 이전의 "채널 총비용을 리드 수 비율로 분배" 방식은 캠페인별 실제 성과를 왜곡해서 폐기.
+        // 행은 일요일~토요일을 한 주로 보는 주차 단위로 추가 분할된다 (cost_imports.date / leads.created_at 기준).
         $pivotTableData = collect();
         $emittedPlatforms = [];
 
-        $leads->groupBy('utm_source')->each(function ($leadsByChannel, $channel) use (&$pivotTableData, &$emittedPlatforms, $costImports, $effectiveStatusByLeadId) {
+        $leads->groupBy('utm_source')->each(function ($leadsByChannel, $channel) use (&$pivotTableData, &$emittedPlatforms, $costImports, $effectiveStatusByLeadId, $revenueByLeadId) {
             $channel = $channel ?: '알 수 없음';
             $platform = self::PLATFORM_MAPPING[$channel] ?? $channel;
             $apiCampaigns = $costImports->where('platform', $platform)->groupBy('campaign_code');
@@ -415,63 +349,79 @@ class ChannelPivotController extends Controller
                 $emittedPlatforms[] = $platform;
             }
 
-            $leadGroups = $leadsByChannel->groupBy('utm_campaign');
+            // 캠페인 → 주(일~토) 2단계로 분할
+            $leadGroups = $leadsByChannel->groupBy('utm_campaign')
+                ->map(fn ($group) => $group->groupBy(fn ($lead) => $this->weekKey($lead->created_at)));
 
             if ($emitApiRows) {
                 foreach ($apiCampaigns as $campaignCode => $campaignImports) {
-                    $pivotTableData->push($this->buildPivotRow(
-                        $channel,
-                        $campaignCode !== '' ? $campaignCode : '알 수 없음',
-                        $leadGroups->get($campaignCode, collect()),
-                        (int) $campaignImports->sum('impressions'),
-                        (int) $campaignImports->sum('clicks'),
-                        (float) $campaignImports->sum('cost'),
-                        'api',
-                        $effectiveStatusByLeadId
-                    ));
+                    $importsByWeek = $campaignImports->groupBy(fn ($import) => $this->weekKey($import->date));
+                    $leadWeeks = $leadGroups->get($campaignCode, collect());
+
+                    // 광고비가 있는 주와 리드가 있는 주를 합쳐 한 주도 누락하지 않는다
+                    foreach ($importsByWeek->keys()->merge($leadWeeks->keys())->unique() as $week) {
+                        $weekImports = $importsByWeek->get($week, collect());
+                        $pivotTableData->push($this->buildPivotRow(
+                            $channel,
+                            $campaignCode !== '' ? $campaignCode : '알 수 없음',
+                            $leadWeeks->get($week, collect()),
+                            (int) $weekImports->sum('impressions'),
+                            (int) $weekImports->sum('clicks'),
+                            (float) $weekImports->sum('cost'),
+                            'api',
+                            $effectiveStatusByLeadId,
+                            $revenueByLeadId,
+                            $week
+                        ));
+                    }
                 }
             }
 
-            foreach ($leadGroups as $campaign => $leadsByCampaign) {
+            foreach ($leadGroups as $campaign => $leadsByWeek) {
                 if ($emitApiRows && $campaign !== '' && $apiCampaigns->has($campaign)) {
                     continue; // 위 API 캠페인 행에 이미 합쳐짐
                 }
-                $pivotTableData->push($this->buildPivotRow(
-                    $channel,
-                    $campaign !== '' && $campaign !== null ? $campaign : '알 수 없음',
-                    $leadsByCampaign,
-                    0,
-                    0,
-                    0,
-                    'manual',
-                    $effectiveStatusByLeadId
-                ));
+                foreach ($leadsByWeek as $week => $leadsByCampaignWeek) {
+                    $pivotTableData->push($this->buildPivotRow(
+                        $channel,
+                        $campaign !== '' && $campaign !== null ? $campaign : '알 수 없음',
+                        $leadsByCampaignWeek,
+                        0,
+                        0,
+                        0,
+                        'manual',
+                        $effectiveStatusByLeadId,
+                        $revenueByLeadId,
+                        $week
+                    ));
+                }
             }
         });
 
-        // 해당 기간에 리드가 한 건도 없는 플랫폼의 광고비도 캠페인별로 표시한다
+        // 해당 기간에 리드가 한 건도 없는 플랫폼의 광고비도 캠페인×주별로 표시한다
         // (예: 네이버 유입 리드가 0건이어도 광고비는 집행되고 있으므로 화면에서 사라지면 안 됨)
-        $costImports->groupBy('platform')->each(function ($platformImports, $platform) use (&$pivotTableData, $emittedPlatforms, $effectiveStatusByLeadId) {
+        $costImports->groupBy('platform')->each(function ($platformImports, $platform) use (&$pivotTableData, $emittedPlatforms, $effectiveStatusByLeadId, $revenueByLeadId) {
             if (in_array($platform, $emittedPlatforms, true)) {
                 return;
             }
             $channelLabel = self::PLATFORM_DISPLAY_NAMES[$platform] ?? $platform;
             foreach ($platformImports->groupBy('campaign_code') as $campaignCode => $campaignImports) {
-                $pivotTableData->push($this->buildPivotRow(
-                    $channelLabel,
-                    $campaignCode !== '' ? $campaignCode : '알 수 없음',
-                    collect(),
-                    (int) $campaignImports->sum('impressions'),
-                    (int) $campaignImports->sum('clicks'),
-                    (float) $campaignImports->sum('cost'),
-                    'api',
-                    $effectiveStatusByLeadId
-                ));
+                foreach ($campaignImports->groupBy(fn ($import) => $this->weekKey($import->date)) as $week => $weekImports) {
+                    $pivotTableData->push($this->buildPivotRow(
+                        $channelLabel,
+                        $campaignCode !== '' ? $campaignCode : '알 수 없음',
+                        collect(),
+                        (int) $weekImports->sum('impressions'),
+                        (int) $weekImports->sum('clicks'),
+                        (float) $weekImports->sum('cost'),
+                        'api',
+                        $effectiveStatusByLeadId,
+                        $revenueByLeadId,
+                        $week
+                    ));
+                }
             }
         });
-
-        Log::info('PivotTableData aggregated', ['data' => $pivotTableData->toArray()]);
-
 
         return Response::json([
             'channelPerformance' => $channelPerformanceData,
@@ -487,9 +437,13 @@ class ChannelPivotController extends Controller
      *
      * @param \Illuminate\Support\Collection $campaignLeads 이 캠페인에 귀속된 리드 목록 (없으면 빈 컬렉션)
      * @param array<string, string> $effectiveStatusByLeadId pending/rejected 리드의 마지막 도달 단계 맵
+     * @param array<string, int|float> $revenueByLeadId converted 리드의 수익 맵 (lead_id => revenue)
+     * @param string $weekKey weekKey()가 만든 "연-월-주차" 키 (일요일~토요일 기준)
      */
-    private function buildPivotRow(string $channel, string $campaign, $campaignLeads, int $impressions, int $clicks, float $cost, string $source, array $effectiveStatusByLeadId): array
+    private function buildPivotRow(string $channel, string $campaign, $campaignLeads, int $impressions, int $clicks, float $cost, string $source, array $effectiveStatusByLeadId, array $revenueByLeadId, string $weekKey): array
     {
+        [$year, $month, $week] = array_map('intval', explode('-', $weekKey));
+
         $totalLeads = $campaignLeads->count();
 
         // 상태 기반 카운팅 — pending/rejected는 마지막 도달 단계로 환산
@@ -506,13 +460,7 @@ class ChannelPivotController extends Controller
         $convertedLeads = $campaignLeads->filter(fn ($lead) => $lead->status === 'converted');
         $totalContracts = $convertedLeads->count();
 
-        $totalRevenue = 0;
-        foreach ($convertedLeads as $lead) {
-            $appointment = Appointment::where('lead_id', $lead->lead_id)->first();
-            if ($appointment) {
-                $totalRevenue += $appointment->total_revenue ?? 0;
-            }
-        }
+        $totalRevenue = $convertedLeads->sum(fn ($lead) => $revenueByLeadId[$lead->lead_id] ?? 0);
 
         $cpa = $totalLeads > 0 ? $cost / $totalLeads : 0;
         $roas = $cost > 0 ? ($totalRevenue / $cost) * 100 : 0;
@@ -540,7 +488,25 @@ class ChannelPivotController extends Controller
             'cpa' => round($cpa),
             'roas' => round($roas),
             'source' => $source, // API 데이터 vs 수동 입력 데이터 구분
+            'year' => $year,
+            'month' => $month,
+            'week' => $week, // 월 내 주차 (일요일~토요일 기준, 프론트 getWeekOfMonth와 동일 규칙)
         ];
+    }
+
+    /**
+     * 일요일~토요일을 한 주로 보는 월 내 주차 키("연-월-주차")를 반환한다.
+     * 프론트엔드 getWeekOfMonth와 동일 규칙: 1일이 속한 주가 1주차, 일요일마다 주차 증가.
+     *
+     * @param \Carbon\Carbon|string $date
+     */
+    private function weekKey($date): string
+    {
+        $d = \Carbon\Carbon::parse($date);
+        $firstDayOffset = $d->copy()->startOfMonth()->dayOfWeek; // 0=일요일
+        $week = (int) ceil(($d->day + $firstDayOffset) / 7);
+
+        return "{$d->year}-{$d->month}-{$week}";
     }
 
     /**

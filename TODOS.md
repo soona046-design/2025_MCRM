@@ -1,6 +1,58 @@
 # M-CRM TODO
 
-_최종 업데이트: 2026-06-22_
+_최종 업데이트: 2026-07-06_
+
+---
+
+## 🎨 프론트엔드 디자인 시스템 교체 — 토스 디자인 시스템(TDS) 적용 (2026-07-06)
+
+> Insight 디자인 시스템으로 1차 적용했다가, 사용자 요청으로 **토스 디자인 시스템(TDS)** 으로 전환 중.
+> 핵심: 화이트 캔버스 + cool-grey 뉴트럴 + 단일 강조색 Toss Blue `#3182F6`, 평면 헤어라인, Pretendard 폰트.
+> 사용자 피드백(2026-07-06): **페이지 타이틀 너무 큼 + UI가 오밀조밀하지 않음** → 밀도 상향 조정 진행.
+
+### ✅ 완료
+
+- [x] **TDS 토큰/테마 기반 구축** — `globals.css`(컬러/타이포/스페이싱/라운드/그림자/모션 토큰 + Pretendard), `src/theme.ts`(MUI 테마 전면 재작성), `layout.tsx`(폰트 로딩)
+- [x] **밀도 조정(1차)** — 카드 패딩 20→16, 테이블 행 9/14, 공용 `PageHeader`(18px 컴팩트 타이틀) 신설, 홈 통계/섹션 카드 축소
+- [x] **로그인 페이지** — 화이트 캔버스 + XL 블루 CTA, 해요체 카피
+- [x] **홈 대시보드(`/`)** — StatsCards/RecentInquiries/InquiryDistribution/UserStatus TDS화 + 밀도 조정
+- [x] **대시보드 목록(`/dashboards`)** — 컴팩트 카드 목록
+- [x] **문의 목록(`/leads`)** + `LeadListTable` — 상태 칩 TDS 시맨틱, 평면 카드, 모바일 가로 스크롤
+- [x] **문의 상세(`/leads/[leadId]`)** — Paper 평면 outlined, 컴팩트 헤더
+- [x] **예약(`/appointments`)** — 예약 카드 + 상태 칩
+- [x] **채널 피벗(`/channel-pivot`)** — 구 Insight 오렌지 → Toss Blue, 차트 팔레트 TDS화
+
+### 🐛 오류 수정 완료 (2026-07-06)
+
+- [x] `appointments/page.tsx` — 상태 칩을 한글로 비교하던 버그(실제는 영문 enum) → 영문 비교 + `STATUS_LABEL` 한글 맵
+- [x] `AuthContext.tsx` / `profiles/page.tsx` — mock `clinic_id: null`이 타입(`string?`)과 불일치 → `string | null` 허용
+- [x] `Sidebar.tsx` — `item.children` 옵셔널 체이닝 누락
+- 참고: 남은 tsc 오류 55건은 **미사용 shadcn UI 프리미티브(radix 미설치, 50건) + 백업파일 `* 2.tsx`(5건)** 뿐 → 빌드(20/20) 영향 없음
+
+### ⚠️ 근본 원인 발견 — 실제 레이아웃은 死코드가 아니었음
+
+> 앞서 재디자인한 `AppShell`/`SideNav`/`TopBar`는 **서로만 참조하는 死코드**. 실제 렌더 체인은
+> `layout.tsx → LayoutWrapper → Sidebar.tsx(보라색 shadcn) + DashboardHeader.tsx`.
+> 즉 좌측 GNB는 아직 옛 보라색이고, `LayoutWrapper`의 `p-8`(32px)이 전 페이지를 감싸 성긴 느낌의 원인.
+
+- [ ] **[우선] 실제 GNB `src/components/Sidebar.tsx` TDS 재디자인** — 흰 배경, blue-50 선택 상태, 컴팩트 (진짜 화면에 나오는 사이드바)
+- [ ] **[우선] `LayoutWrapper` 콘텐츠 패딩 `p-8` 축소** — 밀도 피드백 반영
+- [ ] **실제 헤더 `DashboardHeader.tsx` TDS 적용** — 흰 배경 + 헤어라인
+- [ ] **死코드/백업 정리** — 미사용 `AppShell`/`SideNav`/`TopBar` + `* 2.tsx` 8개 삭제 검토 (사용자 확인 필요)
+
+### ⏳ 나머지 서브페이지 TDS 적용 대기
+
+- [ ] `/agent-performance` 에이전트 성과
+- [ ] `/funnel` 퍼널 분석 (+ `FunnelDropoffTable`)
+- [ ] `/ad-performance` 광고 실적
+- [ ] `/dashboards/marketing` 마케팅 대시보드
+- [ ] `/dashboards/channel-treatment-matrix` 채널-치료 매트릭스
+- [ ] `/channels` · `/ad-channels` · `/settings/channels` 채널 관리 (3개)
+- [ ] `/profiles` 프로필
+- [ ] `/trash` · `/trash/channel-pivot` 휴지통 (2개)
+- [ ] 전체 빌드 검증 + 모바일 뷰 확인
+
+> **제외(라우트 없음)**: `/tickets`(page.tsx 없음), `/settings` 루트(page.tsx 없음), `/audit`(폴더 없음이나 GNB에 링크 존재 — 별도 정리 필요)
 
 ---
 
