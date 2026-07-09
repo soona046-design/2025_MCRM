@@ -2,6 +2,7 @@
   "pkg": "insight-ui",
   "globalName": "InsightUI",
   "shape": "package",
+  "projectId": "6f899b80-d12a-4f4c-9c68-dbb2755015e6",
   "srcDir": "../../../../m-crm-project/src/components/ui",
   "tsconfig": "../../ds-tsconfig.json",
   "cssEntry": "styles.css",
