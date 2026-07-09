@@ -1,241 +1,271 @@
-# Insight Design System (인사이트 디자인 시스템)
+# 디자인 시스템 문서
 
-병원 전문 마케팅 브랜드 **insight**를 위한 모바일 우선 디자인 시스템.
-원본 *"UI Design_Style Guide"* Figma를 토큰 · 컴포넌트 · 가이드라인으로 정리한 단일 정의 문서입니다.
+> 출처: Figma – "제목 없음" 파일 / Frame "대시보드 - 네이버 광고" (node-id: 1:977)
+> [https://www.figma.com/design/0mojeZbpxGko71laR5CHet/제목-없음?node-id=1-977](https://www.figma.com/design/0mojeZbpxGko71laR5CHet/제목-없음?node-id=1-977)
 
-- **기본 폰트:** Pretendard (원본 Figma는 Spoqa Han Sans Neo 사용 → 클라이언트 요청으로 Pretendard 대체)
-- **영문 디스플레이:** Roboto
-- **언어/톤:** 한국어, 정중·중립체, 짧은 명사/동사형 라벨
-- **핵심 모티프:** 모노크롬 + 단일 포인트 오렌지 `#FF5B2C` / 아이콘 라인(기본)→채움(선택)
+이 문서는 피그마 프레임에서 추출한 실제 스타일 값(색상, 타이포그래피, 스페이싱, 컴포넌트)을 기준으로 정리한 디자인 시스템입니다. 별도의 Figma Variables(디자인 토큰)는 파일에 정의되어 있지 않아, 화면에 사용된 값을 그대로 토큰화했습니다.
 
 ---
 
-## 1. 컬러 (Color)
+## 1. 색상 (Color)
 
-### 포인트 / 브랜드
-| 토큰 | HEX | 역할 |
-|---|---|---|
-| `--insight-orange` | `#FF5B2C` | 메인 포인트 · CTA 강조 · 배지 |
-| `--insight-blue` | `#7DADFF` | 서브 01 · 정보 강조 · 카운트 배지 |
-| `--insight-amber` | `#FFBD69` | 서브 02 · 보조 강조 |
-| `--insight-guide` | `#86B3FF` | 가이드/주석 액센트 |
+### Primary
 
-### 뉴트럴 램프
-| 토큰 | HEX | 용도 |
-|---|---|---|
-| `--black` | `#000000` | 본문 텍스트 · 기본 버튼 배경 |
-| `--gray-900` | `#222222` | 버튼 press · 강한 텍스트 |
-| `--gray-600` | `#666666` | 보조 텍스트 |
-| `--gray-500` | `#999999` | 3차 텍스트 · placeholder |
-| `--gray-400` | `#BBBBBB` | 비활성 버튼 배경 |
-| `--gray-300` | `#CCCCCC` | 비활성 텍스트 · 약한 아이콘 |
-| `--gray-200` | `#EAEAEA` | 기본 라인/디바이더 |
-| `--gray-150` | `#F1F1F1` | 라이트 라인 |
-| `--gray-100` | `#F6F6F6` | 약한 표면 / fill |
-| `--white` | `#FFFFFF` | 기본 표면 |
 
-### 시맨틱
-| 토큰 | 값 | 토큰 | 값 |
-|---|---|---|---|
-| `--text-primary` | black | `--surface-base` | white |
-| `--text-secondary` | gray-600 | `--surface-muted` | gray-100 |
-| `--text-tertiary` | gray-500 | `--surface-dark` | gray-900 |
-| `--text-disabled` | gray-300 | `--surface-point` | orange |
-| `--text-point` | orange | `--line-default` | gray-200 |
-| `--text-on-dark` | white | `--line-strong` | gray-300 |
-| `--text-link` | black | `--line-light` | gray-150 |
+| 토큰                      | 값               | 용도                                        |
+| ----------------------- | --------------- | ----------------------------------------- |
+| `color-primary`         | `#FF5B2C`       | 주요 버튼 배경, 링크, 강조 텍스트, 활성 탭/메뉴 텍스트         |
+| `color-primary-hover`   | `#B2401F` (600) | Primary 버튼 hover/active, 흰 텍스트와 대비 5.76:1 |
+| `color-primary-text`    | `#8C3218` (700) | 옅은 배경 위 강조 텍스트/뱃지 (대비 7.58:1)             |
+| `color-primary-surface` | `#FFF5F2` (50)  | 보조 버튼 배경, 강조 카드 배경                        |
 
-> **규칙:** 화면은 거의 모노크롬(흰 배경·검정 텍스트·그레이 위계). 오렌지는 형광펜처럼 **소량 강조**에만 — 큰 면적/버튼 배경에는 사용하지 않음. **그라데이션 없음.**
+
+> **사용 비중 가이드**: `color-primary` 계열은 화면 전체 시각 비중의 **30%를 넘지 않도록 제한**한다. Primary CTA 버튼, 활성 내비게이션 상태, 핵심 KPI 1개 등 "포인트" 요소에만 쓰고, 나머지 UI(카드, 테이블, 보조 버튼, 나머지 KPI)는 Neutral/Surface 톤을 기본으로 유지한다.
+> 흰 텍스트를 `#FF5B2C` 배경에 바로 얹으면 명암비 3.1:1로 본문 텍스트 기준에는 부족하므로, 작은 텍스트에는 `color-primary-hover`(600)를 쓰거나 굵고 큰 텍스트(SemiBold 16px 이상)로 제한한다.
+
+
+
+### Neutral / Text
+
+
+| 토큰                   | 값         | 용도                            |
+| -------------------- | --------- | ----------------------------- |
+| `color-text-primary` | `#000000` | 기본 본문 텍스트                     |
+| `color-text-heading` | `#2E2E2E` | 헤더 로고, 사이드바/메뉴 텍스트            |
+| `color-text-muted`   | `#737373` | 보조 설명, 비활성 탭 텍스트, placeholder |
+
+
+
+
+### Border / Divider
+
+
+| 토큰                     | 값                  | 용도                      |
+| ---------------------- | ------------------ | ----------------------- |
+| `color-border-default` | `rgba(0,0,0,0.08)` | 기본 구분선, 카드 보더           |
+| `color-border-strong`  | `rgba(0,0,0,0.15)` | 점선 구분선(Horizontal Rule) |
+| `color-border-subtle`  | `rgba(0,0,0,0.10)` | 페이지네이션 버튼 보더            |
+| `color-border-table`   | `#E5E5E5`          | 테이블 셀 보더                |
+| `color-divider-line`   | `rgba(5,5,5,0.06)` | 헤더 내 세로 구분선             |
+
+
+
+
+### Surface / Background
+
+
+| 토큰                 | 값         | 용도                     |
+| ------------------ | --------- | ---------------------- |
+| `color-bg-page`    | `#F7F7F7` | 검색창 등 옅은 배경            |
+| `color-bg-subtle`  | `#F8F9FA` | 세그먼트 컨트롤 배경, 테이블 헤더 배경 |
+| `color-bg-surface` | `#FFFFFF` | 카드/패널 배경               |
+
+
+
+
+### 데이터 시각화 / 시맨틱 컬러
+
+
+| 토큰                   | 값         | 용도              |
+| -------------------- | --------- | --------------- |
+| `color-data-red`     | `#F4361E` | KPI "총 노출수" 강조색 |
+| `color-data-orange`  | `#FD9A06` | KPI "총 클릭수" 강조색 |
+| `color-data-blue`    | `#2196F3` | KPI "총 전환수" 강조색 |
+| `color-badge-border` | `#91CAFF` | "필수" 뱃지 보더      |
+| `color-badge-text`   | `#0958D9` | "필수" 뱃지 텍스트     |
+
 
 ---
+
+
 
 ## 2. 타이포그래피 (Typography)
 
-- **Base:** `Pretendard Variable` (한글 + 라틴 UI 전체)
-- **Display:** `Roboto` (영문 대형 헤딩 전용)
-- **Weights:** Regular 400 / Medium 500 / Bold 700
-- **Tracking:** 기본 **-2.5%**(`-0.025em`), 밀집 라벨/링크 **-5%**(`-0.05em`)
 
-| 스타일 | 클래스 | 굵기 | 크기 / 행간 | 용도 |
-|---|---|---|---|---|
-| headline.01 | `.t-headline` | Regular | 20 / 30 | 섹션·페이지 헤드라인 |
-| title.02 | `.t-title-02` | Medium | 18 / 26 | 카드·리스트 제목 |
-| title.01 | `.t-title-01` | Bold | 13 / 20 | 강한 라벨·버튼 |
-| body.03 | `.t-body-03` | Medium | 15 / 22 | 강조 본문 |
-| body.02 | `.t-body-02` | Medium | 13 / 20 | 기본 본문(강조) |
-| body.01 | `.t-body-01` | Regular | 13 / 20 | 기본 본문 |
-| caption | `.t-caption` | Regular | 12 / 22 | 표·그래프·메타 |
-| gnb label | `.t-gnb` | Bold | 10 / 12 | 탭바 라벨 |
-| display | `.t-display` | Medium | 40 / 1 | 영문 커버 헤딩 |
+
+### 폰트 패밀리
+
+- **Pretendard** (Regular / Medium / SemiBold / Bold) — 본문, UI 전반의 기본 폰트
+- **NanumSquareExtraBold** — 브랜드 로고/타이틀 전용 ("광고주센터")
+- **Inter** — 차트 축 라벨(숫자/영문)
+
+
+
+### 크기 스케일
+
+
+| 크기   | Weight             | Tracking | 용도                           |
+| ---- | ------------------ | -------- | ---------------------------- |
+| 20px | ExtraBold (Nanum)  | -0.5px   | 브랜드 로고 타이틀                   |
+| 18px | Bold               | -0.3px   | 섹션 타이틀 ("광고 성과지표", "공지사항" 등) |
+| 16px | SemiBold / Regular | -0.3px   | 버튼 텍스트, 사이드바 1depth 메뉴       |
+| 15px | Regular / Medium   | -0.3px   | 본문 텍스트, 테이블 셀, 메뉴 텍스트        |
+| 14px | SemiBold           | -        | 보조 버튼 텍스트, 탭 라벨              |
+| 13px | SemiBold / Regular | -0.3px   | 세그먼트 컨트롤 라벨                  |
+| 12px | Regular            | -        | 캡션, 차트 축 라벨(Inter)           |
+| 11px | SemiBold           | -        | 뱃지 텍스트                       |
+| 22px | Medium             | -0.3px   | KPI 숫자 강조                    |
+
+
+---
+
+
+
+## 3. Spacing & Radius
+
+
+
+### Border Radius
+
+
+| 토큰            | 값              | 용도                       |
+| ------------- | -------------- | ------------------------ |
+| `radius-sm`   | 6px            | 보조/아웃라인 버튼               |
+| `radius-md`   | 8px            | 기본 버튼, 인풋, 카드(소), KPI 카드 |
+| `radius-lg`   | 12px           | 대형 카드/패널                 |
+| `radius-pill` | 999px / 9999px | 검색창, 세그먼트 컨트롤, 뱃지(pill)  |
+
+
+
+
+### Spacing 스케일 (8px 그리드 기준)
+
+`4 · 6 · 8 · 10 · 12 · 16 · 20 · 24` px — 컴포넌트 내부 padding, 요소 간 gap에 반복적으로 사용. 버튼류는 좌우 padding 13~17px로 광학 보정.
+
+### 레이아웃 치수
+
+
+| 영역         | 치수                                                |
+| ---------- | ------------------------------------------------- |
+| 헤더(Header) | 높이 56px, 전체 너비                                    |
+| 좌측 사이드바    | 외곽 300px / 내부 콘텐츠 280px, 메뉴 아이템 높이 44px           |
+| 메인 콘텐츠     | 좌측 컬럼 1154px, 우측 패널 382px, 컨텐츠 상단 padding 24~36px |
+
 
 ---
 
-## 3. 스페이싱 · 레이아웃 · 형태
 
-### 스페이싱 (4px 베이스)
-`--space-2/4/6/8/10/12/16/20/24/30/40` → 2·4·6·8·10·12·16·20·24·30·40px
-
-### 레이아웃
-| 토큰 | 값 | 의미 |
-|---|---|---|
-| `--screen-gutter` | 20px | 기본 좌우 페이지 패딩 |
-| `--gnb-margin-left` | 41px | 탭바 좌측 고정 마진 |
-| `--gnb-margin-right` | 42px | 탭바 우측 고정 마진 |
-| `--gnb-height` | 100px | 탭바 높이 |
-| `--control-height` | 60px | 풀폭 버튼 높이 |
-| `--tap-min` | 44px | 최소 터치 타겟 |
-
-### 라운드 (Radius)
-| 토큰 | 값 |
-|---|---|
-| `--radius-sm` | 6px |
-| `--radius-md` | 10px |
-| `--radius-button` | 15px |
-| `--radius-card` | 16px |
-| `--radius-pill` | 999px |
-| `--radius-circle` | 50% |
-
-### 아이콘 사이즈 (맥락별)
-| 토큰 | 값 | 맥락 |
-|---|---|---|
-| `--icon-gnb` | 26px | GNB 탭 |
-| `--icon-top` | 36px | 홈 상단 벨 |
-| `--icon-30` | 30px | 서브탑·홈 카드·키패드·MY |
-| `--icon-card` | 20px | 카드·프로필 인라인 |
-
-### 그림자 (Elevation) — 절제됨
-| 토큰 | 값 | 용도 |
-|---|---|---|
-| `--shadow-gnb` | `0 4px 10px rgba(0,0,0,.10)` | 탭바 (시그니처) |
-| `--shadow-card` | `0 2px 8px rgba(0,0,0,.06)` | 카드 |
-| `--shadow-float` | `0 6px 20px rgba(0,0,0,.12)` | 플로팅 요소 |
-
-> 내부 그림자 없음. outline 카드는 1px `#EAEAEA` 헤어라인으로 대체. 배경은 항상 플랫(텍스처·패턴·그라데이션 없음).
-
----
 
 ## 4. 컴포넌트 (Components)
 
-번들 네임스페이스: `window.InsightDesignSystem_c6bded`
 
-### Button — 풀폭 태스크 버튼
-검정 fill · Bold 13px 흰 라벨 · radius 15 · 높이 60. press 시 `#000→#222`, 비활성 `#BBBBBB`.
-```jsx
-<Button>생성하기</Button>
-<Button disabled>생성하기</Button>
-<Button fullWidth={false}>확인</Button>
-```
-props: `disabled?`, `fullWidth?` (기본 true), `type?`
 
-### TextLink — 인라인 텍스트 액션
-```jsx
-<TextLink icon="more">알림 더보기</TextLink>
-<TextLink underline weight="medium">달력 보기</TextLink>
-<TextLink icon="edit">일정 추가</TextLink>
-```
-props: `icon?`, `underline?`, `weight?` ("bold"|"medium")
+### Button
 
-### Badge — 카운트 / 닷
-```jsx
-<Badge count={1} />              {/* 오렌지 (기본) */}
-<Badge count={2} tone="info" />  {/* 블루 */}
-<Badge dot />
-```
-props: `count?`, `tone?` ("primary"|"info"), `dot?`, `max?` (기본 99 → `99+`)
+- **Primary**: 배경 `#FF5B2C`, 텍스트 흰색(SemiBold 16px 이상 권장), radius 8~~10px, 높이 40~~48px — 화면당 1개 원칙 (예: "광고 만들기", "변경 내용 바로가기")
+- **Secondary (Tint)**: 배경 `#FFF5F2`, 텍스트 `#8C3218`, radius 8px (예: "다운로드", "전체 캠페인 보기")
+- **Outline/Ghost**: 배경 흰색 또는 투명, 보더 없음~옅은 보더, 텍스트 블랙 (예: "충전하기", "전체보기")
+- **Icon Button**: 정사각형(24~48px), radius 8px, 아이콘 중앙 정렬
 
-### Card — 콘텐츠 표면
-radius 16 · 패딩 20. `variant="shadow"`(기본) | `"outline"`(헤어라인). `onClick` 시 전체가 탭 가능.
-```jsx
-<Card><div className="t-title-02">제목</div></Card>
-<Card variant="outline" onClick={open}>탭 가능한 카드</Card>
-```
 
-### TabBar (GNB) — 하단 글로벌 내비
-선택 상태 = 라인 아이콘 → `-fill` 아이콘 교체 (색 변화·밑줄 없음). 고정 41/42px 마진, 100px 높이, 상단 소프트 섀도.
-```jsx
-<TabBar active={tab} onChange={setTab} tabs={[
-  { key:"home", label:"HOME", icon:"home" },
-  { key:"office", label:"OFFICE", icon:"office", badge:1 },
-  { key:"board", label:"BOARD", icon:"board", badge:2, badgeTone:"info" },
-  { key:"my", label:"MY", icon:"my" },
-]} />
-```
 
-### TopBar — 서브페이지 앱바
-중앙 정렬 title.02, 높이 56. leading 기본 `back`, 30px 액션 아이콘. 벨에는 오렌지 닷.
-```jsx
-<TopBar title="알림" leading="back" onLeading={goBack}
-  actions={[{ icon:"search" }, { icon:"settings" }]} />
-```
+### Search Input
 
-### Icon — 40 글리프 인라인 SVG
-커스텀 모노크롬 세트, `currentColor`로 채색. 라인(기본) + `-fill`(선택) 페어.
-```jsx
-<Icon name="bell" size={30} />
-<Icon name="home-fill" size={26} color="var(--insight-orange)" />
-```
-**글리프 목록:** home, office, board, my, edit (+ `-fill` 버전) · back, search, more, close, settings, bell, bell-off · calendar, comments, location, image, hash · grid, link, chat, heart, star-fill, doc-fill, seat-fill, parking-fill, alert-fill, alert-muted, chat-dots-fill · id-card, pin, clock-fill, location-fill, phone-fill, mail-fill
+- 배경 `#F7F7F7`, radius 999px(pill), 높이 40px, 좌측 라벨+아이콘 + 우측 placeholder 텍스트(`#737373`, 16px)
 
----
 
-## 5. 콘텐츠 가이드 (Content Fundamentals)
 
-- **언어:** 한국어. 짧고 명사 중심, 행동 지향.
-- **톤:** 친근-전문. 이름으로 인사("좋은 아침이에요, OOO 님 👋"), 그 외엔 실용적.
-- **존댓말:** 문장은 -요/합쇼체("…업데이트되었습니다"). 버튼·라벨은 어미 없는 명사/동사("생성하기", "예약하기", "달력 보기").
-- **인칭:** 사용자는 "…님". 앱은 기능명으로 3인칭 지칭, "우리/we" 사용 안 함.
-- **케이싱:** 내비게이션 라틴 라벨은 **대문자**(HOME·OFFICE·BOARD·MY), HEX 대문자(`#FF5B2C`).
-- **숫자/시간:** 24시간제, 엔대시 범위("14:00 — 15:00"), 피드는 상대시간("방금", "1시간 전", "어제").
-- **이모지:** 사람 목소리 카피(인사·캐주얼 게시글)에만 **소량**. 시스템 메시지·라벨·버튼엔 사용 안 함.
-- **분위기:** 차분·정돈·실행 중심. 여백 충분, 화면당 명확한 1개 액션.
+### Sidebar Menu Item
 
----
+- 높이 44px, radius 8px
+- 1depth: padding-left 16~24px, 아이콘(24px) + 텍스트(16px)
+- 2depth(하위메뉴): padding-left 48px, 아이콘 없이 텍스트만(16px, Regular)
+- Active 상태: 텍스트 `#FF5B2C` + SemiBold / Inactive: `#2E2E2E` + Regular (전체 메뉴 중 1개만 active)
 
-## 6. 비주얼 가이드 (Visual Foundations)
 
-- **컬러:** 모노크롬 + 단일 오렌지 포인트. 그라데이션 없음.
-- **타입:** Pretendard 전반, Roboto는 영문 디스플레이만. 한글 타이트 트래킹.
-- **형태:** 카드 16 / 버튼 15 라운드, 칩·태그는 풀 pill. 아이콘은 12–16 라운드 사각 컨테이너.
-- **그림자:** GNB 시그니처 섀도 + 가벼운 카드 섀도만. outline은 헤어라인.
-- **배경:** 플랫(흰색/`#F6F6F6`). 텍스처·패턴·사진·일러스트 없음.
-- **아이콘:** 라인=기본 / 채움=선택 — 핵심 인터랙션 모티프(GNB 탭에서 라인→채움 교체).
-- **모션:** 최소. 버튼 press 시 다크닝(스케일 바운스 없음), 트랜지션 ~120ms 컬러 페이드. 장식용 루프 애니메이션 없음.
-- **상태:** 터치 우선. press=다크닝(버튼) 또는 뮤트-그레이 배경(리스트 행). 비활성=`#BBBBBB` fill + 흰 라벨.
+
+### Segmented Control
+
+- 컨테이너 배경 `#F8F9FA`, radius 9999px(pill), padding 4px
+- Active 탭: 배경 흰색 + drop-shadow, 텍스트 `#2E2E2E` SemiBold 13px
+- Inactive 탭: 배경 없음, 텍스트 `#737373` Regular 13px
+
+
+
+### KPI / Stat Card
+
+- 보더 `rgba(0,0,0,0.08)`, radius 8px, padding 13px
+- 상단: 색상 dot(8~12px) + 라벨(16px Medium) + info 아이콘
+- 점선 구분선(`rgba(0,0,0,0.08)`, dashed)
+- 하단: 강조 숫자 22px Medium, 시맨틱 컬러 적용
+
+
+
+### Data Table
+
+- 헤더 셀: 배경 `#F8F9FA`, 보더 `#E5E5E5`, 텍스트 15px Medium
+- 바디 셀: 배경 흰색, 보더 `#E5E5E5`, 텍스트 15px Regular
+- 강조 값(예: 증감률)은 시맨틱 컬러 적용, Primary(`#FF5B2C`)는 행 전체가 아닌 단일 강조 값에만 제한적으로 사용
+
+
+
+### Card / Panel
+
+- 배경 흰색, radius 12px, padding 16~20px
+- 상단: 타이틀(18px Bold) + info 아이콘 + 우측 액션 버튼(Secondary Tint)
+- 리스트/차트/빈 상태 콘텐츠를 포함하는 공용 컨테이너
+
+
+
+### Empty State
+
+- 중앙 정렬, 타이틀 15px SemiBold + 설명 15px Regular, 텍스트 컬러 블랙, 상하 padding 36px
+
+
+
+### Badge / Tag
+
+- Pill 형태, radius 14px, 보더 `#91CAFF`, 배경 흰색, 텍스트 `#0958D9` 11px SemiBold (예: "필수")
+
+
+
+### Pagination
+
+- 원형 아웃라인 버튼(38px, radius 19px), 보더 `rgba(0,0,0,0.1)`
+- 현재 페이지 숫자: `#FF5B2C` SemiBold 16px
+
+
+
+### Divider
+
+- 실선: `rgba(0,0,0,0.08)` 1px — 카드/섹션 구분
+- 점선: `rgba(0,0,0,0.08~0.15)` dashed — 리스트 내부 구분
+- 세로선: `rgba(5,5,5,0.06)` 1px — 헤더 내 아이템 구분
 
 ---
 
-## 7. 아이코노그래피 (Iconography)
 
-- **커스텀 모노크롬 세트(40 글리프).** 아이콘 폰트·서드파티 세트 없음 — 전부 자체 SVG.
-- **스타일:** 기하학적, 둥근 캡, ~1.5px 스트로크. 라인(기본) + `-fill`(선택) 페어.
-- **사이즈:** 26(GNB) · 36(홈 상단 벨) · 30(서브탑/카드/키패드/MY) · 20(인라인).
-- `currentColor`로 채색. 유니코드 글리프를 UI 아이콘으로 쓰지 않음 — 항상 `Icon` 사용.
+
+## 5. 아이콘
+
+크기 스케일: `14 · 16 · 18 · 20 · 24` px. 대부분 라인 아이콘 스타일(1.5px stroke 추정), 버튼/메뉴 아이템 내부에 인라인으로 배치.
 
 ---
 
-## 8. 사용법 (Usage)
 
-```html
-<link rel="stylesheet" href="styles.css" />
-<script src="_ds_bundle.js"></script>
-<script type="text/babel">
-  const { Icon, Button, TabBar, Card, Badge, TextLink, TopBar }
-    = window.InsightDesignSystem_c6bded;
-</script>
+
+## 6. 레이아웃 구조 요약
+
+```
+Frame (1924 x 1521)
+├─ Header (전체 너비 x 56px)
+│  ├─ 좌: 로고 + 검색창
+│  └─ 우: 계정정보 + 비즈머니 + 로그아웃 + 서비스 아이콘
+└─ Body (전체 너비 x 1465px)
+   ├─ Sidebar (300px)
+   │  ├─ "광고 만들기" CTA 버튼
+   │  ├─ 비즈니스 진단 배너
+   │  ├─ 대시보드 / 전체 캠페인 메뉴
+   │  ├─ 세그먼트 컨트롤(검색광고/디스플레이 광고)
+   │  └─ 광고 관리 / 보고서 / 도구 / 구성요소 관리 메뉴
+   └─ Main Content (1624px)
+      ├─ 좌측 컬럼 (1154px)
+      │  ├─ 기간 선택 + 계정 전환 버튼
+      │  ├─ 광고 성과지표 카드 (KPI 3종 + 차트)
+      │  ├─ 광고비 집중 캠페인 카드 (테이블 + 페이지네이션)
+      │  └─ 공지사항 카드 (리스트)
+      └─ 우측 패널 (382px)
+         ├─ 변경 내용 바로가기 카드
+         └─ 알림 카드 (Empty State)
 ```
 
-텍스트 스타일은 플레인 클래스로도 사용 가능: `t-headline`, `t-title-02`, `t-title-01`, `t-body-03/02/01`, `t-caption`, `t-gnb`, `t-display`.
-
-### 파일 구조
-| 경로 | 내용 |
-|---|---|
-| `styles.css` | 글로벌 엔트리 — 모든 토큰 `@import` |
-| `tokens/colors.css · typography.css · spacing.css · fonts.css` | 토큰 정의 |
-| `components/icon · button · badge · card · navigation/` | 컴포넌트 (.jsx/.d.ts/.prompt.md) |
-| `guidelines/*.card.html` | 파운데이션 스펙 카드 |
-| `ui_kits/insight-app/` | 인터랙티브 4탭 앱 재현 |
-| `assets/icons/*.svg · logo-mark*.svg` | 아이콘 40종 · 로고 변형 |
-
----
-
-*이 문서는 디자인 시스템 정의의 단일 요약본입니다. 실행 가능한 토큰/컴포넌트는 프로젝트 파일에 있습니다.*
