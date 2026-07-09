@@ -1,0 +1,128 @@
+{
+  "pkg": "insight-ui",
+  "globalName": "InsightUI",
+  "shape": "package",
+  "srcDir": "../../../../m-crm-project/src/components/ui",
+  "tsconfig": "../../ds-tsconfig.json",
+  "cssEntry": "styles.css",
+  "componentSrcMap": {
+    "Accordion": "../../../../m-crm-project/src/components/ui/accordion.tsx",
+    "AlertDialog": "../../../../m-crm-project/src/components/ui/alert-dialog.tsx",
+    "Alert": "../../../../m-crm-project/src/components/ui/alert.tsx",
+    "AspectRatio": "../../../../m-crm-project/src/components/ui/aspect-ratio.tsx",
+    "Avatar": "../../../../m-crm-project/src/components/ui/avatar.tsx",
+    "Badge": "../../../../m-crm-project/src/components/ui/badge.tsx",
+    "Breadcrumb": "../../../../m-crm-project/src/components/ui/breadcrumb.tsx",
+    "ButtonGroup": "../../../../m-crm-project/src/components/ui/button-group.tsx",
+    "Button": "../../../../m-crm-project/src/components/ui/button.tsx",
+    "Calendar": "../../../../m-crm-project/src/components/ui/calendar.tsx",
+    "Card": "../../../../m-crm-project/src/components/ui/card.tsx",
+    "Carousel": "../../../../m-crm-project/src/components/ui/carousel.tsx",
+    "ChartContainer": "../../../../m-crm-project/src/components/ui/chart.tsx",
+    "Checkbox": "../../../../m-crm-project/src/components/ui/checkbox.tsx",
+    "Collapsible": "../../../../m-crm-project/src/components/ui/collapsible.tsx",
+    "Command": "../../../../m-crm-project/src/components/ui/command.tsx",
+    "ContextMenu": "../../../../m-crm-project/src/components/ui/context-menu.tsx",
+    "Dialog": "../../../../m-crm-project/src/components/ui/dialog.tsx",
+    "Drawer": "../../../../m-crm-project/src/components/ui/drawer.tsx",
+    "DropdownMenu": "../../../../m-crm-project/src/components/ui/dropdown-menu.tsx",
+    "Empty": "../../../../m-crm-project/src/components/ui/empty.tsx",
+    "Field": "../../../../m-crm-project/src/components/ui/field.tsx",
+    "Form": "../../../../m-crm-project/src/components/ui/form.tsx",
+    "HoverCard": "../../../../m-crm-project/src/components/ui/hover-card.tsx",
+    "InputGroup": "../../../../m-crm-project/src/components/ui/input-group.tsx",
+    "InputOTP": "../../../../m-crm-project/src/components/ui/input-otp.tsx",
+    "Input": "../../../../m-crm-project/src/components/ui/input.tsx",
+    "Item": "../../../../m-crm-project/src/components/ui/item.tsx",
+    "Kbd": "../../../../m-crm-project/src/components/ui/kbd.tsx",
+    "Label": "../../../../m-crm-project/src/components/ui/label.tsx",
+    "Menubar": "../../../../m-crm-project/src/components/ui/menubar.tsx",
+    "NavigationMenu": "../../../../m-crm-project/src/components/ui/navigation-menu.tsx",
+    "Pagination": "../../../../m-crm-project/src/components/ui/pagination.tsx",
+    "Popover": "../../../../m-crm-project/src/components/ui/popover.tsx",
+    "Progress": "../../../../m-crm-project/src/components/ui/progress.tsx",
+    "RadioGroup": "../../../../m-crm-project/src/components/ui/radio-group.tsx",
+    "ScrollArea": "../../../../m-crm-project/src/components/ui/scroll-area.tsx",
+    "Select": "../../../../m-crm-project/src/components/ui/select.tsx",
+    "Separator": "../../../../m-crm-project/src/components/ui/separator.tsx",
+    "Sheet": "../../../../m-crm-project/src/components/ui/sheet.tsx",
+    "Sidebar": "../../../../m-crm-project/src/components/ui/sidebar.tsx",
+    "Skeleton": "../../../../m-crm-project/src/components/ui/skeleton.tsx",
+    "Slider": "../../../../m-crm-project/src/components/ui/slider.tsx",
+    "Spinner": "../../../../m-crm-project/src/components/ui/spinner.tsx",
+    "Switch": "../../../../m-crm-project/src/components/ui/switch.tsx",
+    "Table": "../../../../m-crm-project/src/components/ui/table.tsx",
+    "Tabs": "../../../../m-crm-project/src/components/ui/tabs.tsx",
+    "Textarea": "../../../../m-crm-project/src/components/ui/textarea.tsx",
+    "ToggleGroup": "../../../../m-crm-project/src/components/ui/toggle-group.tsx",
+    "Toggle": "../../../../m-crm-project/src/components/ui/toggle.tsx",
+    "Tooltip": "../../../../m-crm-project/src/components/ui/tooltip.tsx"
+  },
+  "overrides": {
+    "Accordion": {
+      "cardMode": "column"
+    },
+    "Carousel": {
+      "cardMode": "column"
+    },
+    "ChartContainer": {
+      "cardMode": "column"
+    },
+    "Collapsible": {
+      "cardMode": "column"
+    },
+    "Command": {
+      "cardMode": "column"
+    },
+    "Form": {
+      "cardMode": "column"
+    },
+    "Pagination": {
+      "cardMode": "column"
+    },
+    "Tabs": {
+      "cardMode": "column"
+    },
+    "AlertDialog": {
+      "cardMode": "single",
+      "primaryStory": "CancelAppointmentAlert"
+    },
+    "Dialog": {
+      "cardMode": "single",
+      "primaryStory": "NewLeadDialog"
+    },
+    "Drawer": {
+      "cardMode": "single",
+      "primaryStory": "QuickAppointmentDrawer"
+    },
+    "DropdownMenu": {
+      "cardMode": "single",
+      "primaryStory": "TicketActionsMenu"
+    },
+    "HoverCard": {
+      "cardMode": "single",
+      "primaryStory": "LeadPreviewCard"
+    },
+    "Menubar": {
+      "cardMode": "single",
+      "primaryStory": "DashboardMenubar"
+    },
+    "Popover": {
+      "cardMode": "single",
+      "primaryStory": "ChannelFilterPopover"
+    },
+    "Select": {
+      "cardMode": "single",
+      "primaryStory": "BranchSelect"
+    },
+    "Sheet": {
+      "cardMode": "single",
+      "primaryStory": "LeadDetailSheet"
+    },
+    "Tooltip": {
+      "cardMode": "single",
+      "primaryStory": "SlaHintTooltip"
+    }
+  },
+  "readmeHeader": ".design-sync/conventions.md"
+}
