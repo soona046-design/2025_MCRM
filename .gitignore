@@ -13,5 +13,5 @@ mcrm-v2-backend/
 .ds-sync/
 ds-bundle/
 
-# 실데이터 원본 (개인정보 포함 — 커밋 금지)
-data/
+# 실데이터 원본 (개인정보 포함 — 커밋 금지). 서식(templates)·README는 커밋됨
+data/original/
