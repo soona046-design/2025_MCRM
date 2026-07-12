@@ -2,3 +2,9 @@
 .DS_Store
 node_modules
 *.tar.gz
+
+# v2 frontend (nested git repo, own remote)
+mcrm-v2/
+
+# v2 backend (nested git repo)
+mcrm-v2-backend/
