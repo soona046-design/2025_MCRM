@@ -12,3 +12,6 @@ mcrm-v2-backend/
 # DesignSync 도구 산출물 (Claude Design 프로젝트가 원본)
 .ds-sync/
 ds-bundle/
+
+# 실데이터 원본 (개인정보 포함 — 커밋 금지)
+data/
