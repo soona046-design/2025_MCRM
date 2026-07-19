@@ -5,15 +5,27 @@
       "name": "mcrm-v2",
       "cwd": "mcrm-v2",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "-p", "3100"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "-p",
+        "3100"
+      ],
       "port": 3100
     },
     {
       "name": "mcrm-v2-backend",
       "cwd": "mcrm-v2-backend",
       "runtimeExecutable": "php",
-      "runtimeArgs": ["artisan", "serve", "--port", "8100"],
-      "port": 8100
+      "runtimeArgs": [
+        "artisan",
+        "serve",
+        "--port",
+        "8100"
+      ],
+      "port": 8100,
+      "autoPort": false
     }
   ]
 }
