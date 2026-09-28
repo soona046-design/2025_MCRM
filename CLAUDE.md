@@ -50,6 +50,7 @@ SSH: `ssh -i ~/.ssh/mcrm_vps root@49.247.138.118`
 5. **여러 에이전트가 이 폴더를 함께 씁니다**(Claude Code 여러 대화, Codex). 커밋 전에 `git status`로 다른 사람의 미커밋 변경이 있는지 확인하고, `git add -A`나 `git add docs` 대신 **경로를 지정해** 커밋합니다. 모르는 변경을 발견하면 임의로 커밋하거나 지우지 말고 사용자에게 알립니다. 9/3과 9/20에 다른 세션의 변경이 섞여 커밋·배포된 전례가 있습니다.
 6. 저장소 3개(루트=문서, `mcrm-v2`, `mcrm-v2-backend`)는 각각 커밋·푸시합니다.
 7. 금지 명령: `migrate:fresh`, `import:real --fresh` — 실데이터와 화면 입력이 사라집니다.
+8. **권한은 `App\Support\Permissions`로만 검사합니다.** 역할을 하드코딩하지 말고 `Permissions::authorize()`·화면 `can()`을 씁니다. users를 참조하는 컬럼·관계를 새로 만들면 `withTrashed()`와 `PurgeTrashedUsers::REFERENCES` 등록이 필요합니다(`연동-수정-맵.md` §2).
 
 ## 문서 지도 (docs/v2)
 
