@@ -32,6 +32,7 @@ SSH: `ssh -i ~/.ssh/mcrm_vps root@49.247.138.118`
 - **백엔드**: `cd /srv/mcrm-v2-backend && git pull && docker compose -f docker-compose.prod.yml up -d --build` — 서비스명 없이 **전체 빌드**합니다. app만 빌드하면 scheduler·queue 컨테이너가 옛 이미지로 남아 정기 작업이 옛 코드로 돕니다. 배포 후 `docker ps`로 queue·scheduler 재생성 시각을 확인합니다. 마이그레이션은 app 컨테이너 기동 시 자동 실행되며 `docker logs mcrm-v2-backend-app-1`에서 DONE/FAIL을 확인합니다.
 - **프론트**: `cd /srv/mcrm-v2 && git pull && docker build --build-arg NEXT_PUBLIC_API_URL=https://49-247-138-118.sslip.io/api -t mcrm-v2-front . && docker rm -f mcrm-front && docker run -d --name mcrm-front --restart unless-stopped -p 127.0.0.1:3000:3000 -e NODE_ENV=production mcrm-v2-front`
 - 자격증명(광고 API 토큰 등)은 서버 `/srv/mcrm-v2-backend/.env`에만 둡니다. git에 넣지 않습니다.
+- 예외: 결재 메일 알림의 SMTP 앱 비밀번호는 화면(설정 › 전자결재)에서 입력해 DB(`system_settings.approval_mail`)에 APP_KEY로 암호화 저장합니다. **APP_KEY를 바꾸면 이 비밀번호를 화면에서 다시 입력**해야 합니다. 메일은 queue 컨테이너가 보냅니다.
 - 정기 작업(scheduler 컨테이너): 광고 수집 06:00, 정기 회차 생성 06:05, 자동 보류 06:10, 휴지통 영구삭제 03:30/03:35(30일 경과분, JSON 백업 후), 익명화 03:00.
 - DB 백업: 호스트 cron 매일 04:15 `/srv/backup-mcrm-db.sh` → `/srv/backups/mcrm-YYYY-MM-DD.sql.gz`(21일 회전, `keep-` 접두는 영구). 장애 대응 진입점은 `docs/v2/배포-가이드.md` §7.
 
